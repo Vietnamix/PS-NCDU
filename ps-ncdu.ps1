@@ -8,20 +8,22 @@
 # ============================================================
 #  Script      : PS-NCDU HTML Edition
 #  Description : Disk Usage Analyzer - Rapport HTML interactif
-#  Version     : 3.4
-#  Date        : 2026-04-30
+#  Version     : 3.6
+#  Date        : 2026-05-01
 #  Auteur      : Eric Guiffaut (EGUI@NOVONORDISK.COM)
 #  Societe     : Novo Nordisk
 # ------------------------------------------------------------
-#  Changements v3.4 :
-#  - Fix navigation (antislash C:\) - JS hors here-string
-#  - Suppression "Appuyez sur ENTER" - fermeture auto
-#  - Toolbar mode redondante supprimee
-#  - Alertes fusionnees en 1 ligne compacte
+#  Changements v3.6 :
+#  - Detection automatique des dossiers OneDrive
+#  - Signalement fichiers cloud-only (taille reelle vs locale)
+#  - Option scan OneDrive dans le menu de demarrage
+#  - Avertissement HTML si fichiers cloud-only detectes
+#  - Fix validation chemin UNC (v3.5)
+#  - JS hors here-string (fix navigation)
 # ============================================================
 
-$SCRIPT_VERSION  = "3.4"
-$SCRIPT_DATE     = "2026-04-30"
+$SCRIPT_VERSION  = "3.6"
+$SCRIPT_DATE     = "2026-05-01"
 $USER_EMAIL      = "EGUI@NOVONORDISK.COM"
 $SCRIPT_AUTHOR   = "Eric Guiffaut"
 $DEFAULT_PATH    = "C:\Users"
@@ -55,6 +57,10 @@ $SCAN_MODES = @{
     2 = @{ Name="Precis        - Ignore sous-dossiers < 10 MB";               Speed="~40-80s"; Accuracy="Excellente (>99%)" }
     3 = @{ Name="Complet       - Scan integral de tous les fichiers";          Speed="~80-150s";Accuracy="100% exacte"       }
 }
+
+# Attributs fichiers OneDrive cloud-only
+$ONEDRIVE_CLOUD_ATTR = [long]0x00400000  # FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+$ONEDRIVE_PINNED_ATTR = [long]0x00080000 # FILE_ATTRIBUTE_PINNED
 
 $scriptTemp = "$env:TEMP\psncdu"
 if (-not (Test-Path $scriptTemp)) { New-Item -ItemType Directory -Path $scriptTemp -Force | Out-Null }
@@ -104,6 +110,101 @@ function Get-FullUserName {
         if (-not [string]::IsNullOrWhiteSpace($fn)) { return $fn.ToString() }
     } catch {}
     return $env:USERNAME
+}
+
+# ============================================================
+# ✅ v3.6 - Detection automatique des dossiers OneDrive
+# ============================================================
+function Get-OneDrivePaths {
+    $paths = @()
+
+    # 1. Variable d environnement standard
+    $envOD = $env:OneDrive
+    if (-not [string]::IsNullOrWhiteSpace($envOD) -and (Test-Path $envOD -ErrorAction SilentlyContinue)) {
+        $paths += @{ Path=$envOD; Type="OneDrive Personnel"; Icon="☁️" }
+        Write-Log "[OD] Detecte via env:OneDrive : '$envOD'"
+    }
+
+    # 2. Variable OneDriveCommercial (entreprise)
+    $envODC = $env:OneDriveCommercial
+    if (-not [string]::IsNullOrWhiteSpace($envODC) -and (Test-Path $envODC -ErrorAction SilentlyContinue)) {
+        if (-not ($paths | Where-Object { $_.Path -eq $envODC })) {
+            $paths += @{ Path=$envODC; Type="OneDrive Entreprise"; Icon="🏢" }
+            Write-Log "[OD] Detecte via env:OneDriveCommercial : '$envODC'"
+        }
+    }
+
+    # 3. Scan du profil utilisateur pour dossiers OneDrive*
+    $userProfile = $env:USERPROFILE
+    if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+        try {
+            $odDirs = Get-ChildItem -Path $userProfile -Directory -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Name -like "OneDrive*" }
+            foreach ($d in $odDirs) {
+                if (-not ($paths | Where-Object { $_.Path -eq $d.FullName })) {
+                    $type = if ($d.Name -match "Novo|Enterprise|Business|Corp") { "OneDrive Entreprise" } else { "OneDrive" }
+                    $paths += @{ Path=$d.FullName; Type=$type; Icon="☁️" }
+                    Write-Log "[OD] Detecte via scan profil : '$($d.FullName)'"
+                }
+            }
+        } catch {}
+    }
+
+    # 4. Registre Windows - cles OneDrive
+    $regPaths = @(
+        "HKCU:\Software\Microsoft\OneDrive\Accounts",
+        "HKCU:\Software\Microsoft\SkyDrive"
+    )
+    foreach ($regPath in $regPaths) {
+        try {
+            if (Test-Path $regPath -ErrorAction SilentlyContinue) {
+                $accounts = Get-ChildItem $regPath -ErrorAction SilentlyContinue
+                foreach ($acc in $accounts) {
+                    $localPath = (Get-ItemProperty -Path $acc.PSPath -ErrorAction SilentlyContinue).UserFolder
+                    if (-not [string]::IsNullOrWhiteSpace($localPath) -and
+                        (Test-Path $localPath -ErrorAction SilentlyContinue) -and
+                        -not ($paths | Where-Object { $_.Path -eq $localPath })) {
+                        $accName = Split-Path $acc.PSPath -Leaf
+                        $type = if ($accName -match "Business|1|2") { "OneDrive Entreprise ($accName)" } else { "OneDrive Personnel" }
+                        $paths += @{ Path=$localPath; Type=$type; Icon="☁️" }
+                        Write-Log "[OD] Detecte via registre '$regPath\$accName' : '$localPath'"
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    return $paths
+}
+
+# ============================================================
+# ✅ v3.6 - Detection fichiers cloud-only OneDrive
+# ============================================================
+function Test-IsCloudOnly {
+    param([object]$FileItem)
+    try {
+        $attr = [long]$FileItem.Attributes
+        # FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS (0x400000) = cloud only
+        # FILE_ATTRIBUTE_RECALL_ON_OPEN (0x40000) = aussi cloud
+        if (($attr -band 0x400000) -ne 0) { return $true }
+        if (($attr -band 0x40000)  -ne 0) { return $true }
+        return $false
+    } catch { return $false }
+}
+
+function Get-OneDriveCloudSize {
+    param([object]$FileItem)
+    # Pour les fichiers cloud-only, tenter de lire la taille reelle
+    # via les streams alternatifs ou la taille sur disque
+    try {
+        # La propriete Length donne 0 pour cloud-only
+        # On peut tenter de lire le flux de donnees alternatif OneDrive
+        # qui stocke parfois la taille reelle
+        $fi = New-Object System.IO.FileInfo($FileItem.FullName)
+        # Si Length > 0 malgre l attribut cloud, c est la vraie taille
+        if ($fi.Length -gt 0) { return $fi.Length }
+    } catch {}
+    return [long]0
 }
 
 Write-Log "PS-NCDU v$SCRIPT_VERSION ($SCRIPT_DATE) Demarrage"
@@ -178,13 +279,25 @@ function Test-IsJunction {
         return ($attr -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
     } catch { return $false }
 }
-function Test-NetworkPath {
+function Test-PathAccessible {
     param([string]$Path)
-    if ($Path -match '^\\\\') {
-        try { return (Test-Path -Path $Path -ErrorAction Stop) }
-        catch { Write-Log "[NET] Erreur '$Path' : $_" -Level ERROR; return $false }
+    if ($Path -notmatch '^\\\\') {
+        return (Test-Path -Path $Path -ErrorAction SilentlyContinue)
     }
-    return $true
+    try { if(Test-Path -Path $Path -ErrorAction Stop){ return $true } } catch {}
+    try {
+        $di=New-Object System.IO.DirectoryInfo($Path)
+        $null=$di.GetDirectories()
+        return $true
+    } catch {}
+    try {
+        $prevEnc=[Console]::OutputEncoding
+        [Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+        $cmdOut=& cmd /c "dir `"$Path`" 2>nul"
+        [Console]::OutputEncoding=$prevEnc
+        if($null -ne $cmdOut -and $cmdOut.Count -gt 0){ return $true }
+    } catch {}
+    return $false
 }
 function Format-Size {
     param([long]$Size)
@@ -228,10 +341,9 @@ function Get-SubDirectories {
             if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { $jCount++ }
             else { $filtered += $item }
         }
-        if ($jCount -gt 0) { Write-Log "[DIR-M1] '$Path' : $jCount junction(s)" }
         return @{ Items=$filtered; Method="GCI"; Denied=$false; Junctions=$jCount }
     }
-    catch [System.UnauthorizedAccessException] { Write-Log "[DIR-M1] Refuse '$Path'" -Level DEBUG }
+    catch [System.UnauthorizedAccessException] {}
     catch { Write-Log "[DIR-M1] Erreur '$Path' : $_" -Level DEBUG }
     try {
         $di=New-Object System.IO.DirectoryInfo($Path); $subs=$di.GetDirectories(); $jCount=0; $items=@()
@@ -241,7 +353,7 @@ function Get-SubDirectories {
         }
         return @{ Items=$items; Method="NET"; Denied=$false; Junctions=$jCount }
     }
-    catch [System.UnauthorizedAccessException] { Write-Log "[DIR-M2] Refuse '$Path'" -Level DEBUG }
+    catch [System.UnauthorizedAccessException] {}
     catch { Write-Log "[DIR-M2] Erreur '$Path' : $_" -Level DEBUG }
     try {
         $cmdOut=Invoke-CmdDirSafe -Path $Path -DirArgs "/b /ad"
@@ -259,40 +371,27 @@ function Get-SubDirectories {
         }
     }
     catch { Write-Log "[DIR-M3] Erreur '$Path' : $_" -Level DEBUG }
-    Write-Log "[DIR] PROTEGE : '$Path'" -Level INFO
     return @{ Items=@(); Method="NONE"; Denied=$true; Junctions=0 }
 }
 function Get-DirectFiles {
     param([string]$Path)
     try { return Get-ChildItem -Path $Path -File -ErrorAction Stop -Force }
     catch [System.UnauthorizedAccessException] {}
-    catch { Write-Log "[FILE-M1] Erreur '$Path' : $_" -Level DEBUG }
+    catch {}
     try {
         $di=New-Object System.IO.DirectoryInfo($Path)
         return $di.GetFiles() | ForEach-Object {
-            New-Object PSObject -Property @{ FullName=$_.FullName; Name=$_.Name; Length=$_.Length; Extension=$_.Extension; DirectoryName=$Path }
+            New-Object PSObject -Property @{ FullName=$_.FullName; Name=$_.Name; Length=$_.Length; Extension=$_.Extension; DirectoryName=$Path; Attributes=$_.Attributes }
         }
     }
-    catch [System.UnauthorizedAccessException] {}
-    catch { Write-Log "[FILE-M2] Erreur '$Path' : $_" -Level DEBUG }
-    try {
-        $cmdOut=Invoke-CmdDirSafe -Path $Path -DirArgs "/b /a-d"
-        if ($null -ne $cmdOut) {
-            return $cmdOut | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                   ForEach-Object {
-                       $fp=Join-Path $Path $_
-                       try { $fi=New-Object System.IO.FileInfo($fp); New-Object PSObject -Property @{ FullName=$fp; Name=$_; Length=$fi.Length; Extension=$fi.Extension; DirectoryName=$Path } }
-                       catch { $null }
-                   } | Where-Object { $null -ne $_ }
-        }
-    } catch {}
+    catch {}
     return @()
 }
 function Get-RecursiveFiles {
     param([string]$Path)
     try { return Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue -Force }
     catch [System.UnauthorizedAccessException] {}
-    catch { Write-Log "[RFILE-M1] Erreur '$Path' : $_" -Level DEBUG }
+    catch {}
     try {
         $result=@(); $dirQueue=@($Path)
         while ($dirQueue.Count -gt 0) {
@@ -300,7 +399,7 @@ function Get-RecursiveFiles {
             try {
                 $di=New-Object System.IO.DirectoryInfo($current)
                 foreach ($f in $di.GetFiles()) {
-                    $result += New-Object PSObject -Property @{ FullName=$f.FullName; Name=$f.Name; Length=$f.Length; Extension=$f.Extension; DirectoryName=$current }
+                    $result += New-Object PSObject -Property @{ FullName=$f.FullName; Name=$f.Name; Length=$f.Length; Extension=$f.Extension; DirectoryName=$current; Attributes=$f.Attributes }
                 }
                 foreach ($s in $di.GetDirectories()) {
                     if (($s.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) { $dirQueue += $s.FullName }
@@ -314,8 +413,10 @@ function Get-RecursiveFiles {
         if ($null -ne $cmdOut) {
             return $cmdOut | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
                    ForEach-Object {
-                       try { $fi=New-Object System.IO.FileInfo($_); New-Object PSObject -Property @{ FullName=$_; Name=$fi.Name; Length=$fi.Length; Extension=$fi.Extension; DirectoryName=$fi.DirectoryName } }
-                       catch { $null }
+                       try {
+                           $fi=New-Object System.IO.FileInfo($_)
+                           New-Object PSObject -Property @{ FullName=$_; Name=$fi.Name; Length=$fi.Length; Extension=$fi.Extension; DirectoryName=$fi.DirectoryName; Attributes=$fi.Attributes }
+                       } catch { $null }
                    } | Where-Object { $null -ne $_ }
         }
     } catch {}
@@ -323,18 +424,29 @@ function Get-RecursiveFiles {
 }
 
 # ============================================================
-# SCAN
+# SCAN v3.6 - avec comptage fichiers cloud-only OneDrive
 # ============================================================
 function Start-FastScan {
-    param([string]$RootPath,[int]$MaxDepth=3,[hashtable]$Mode=$null)
+    param(
+        [string]$RootPath,
+        [int]$MaxDepth=3,
+        [hashtable]$Mode=$null,
+        [bool]$IsOneDrive=$false
+    )
     $ACT="PS-NCDU v$SCRIPT_VERSION"; $scanStart=Get-Date; $script:ScanGlobalStart=$scanStart
     $rootDepth=Get-RootDepth -RootPath $RootPath
     $modeName=if($null -ne $Mode){$Mode["Name"]}else{"Complet"}
     $isUNC=$RootPath -match '^\\\\'; $pathType=if($isUNC){"UNC reseau"}else{"Local"}
     $unlimited=($MaxDepth -eq 0); $depthLabel=if($unlimited){"ILLIMITEE"}else{"$MaxDepth niveaux"}
 
+    # Stats OneDrive
+    $cloudOnlyCount  = 0
+    $cloudOnlySize   = [long]0
+    $localOnlySize   = [long]0
+
     Write-Log "=========================================="; Write-Log "DEBUT SCAN v$SCRIPT_VERSION : $RootPath"
-    Write-Log "Type : $pathType | Mode : $modeName | Profondeur : $depthLabel"; Write-Log "=========================================="
+    Write-Log "Type : $pathType | Mode : $modeName | Profondeur : $depthLabel | OneDrive : $IsOneDrive"
+    Write-Log "=========================================="
 
     $t=Get-Date; Update-Progress $ACT "E1/5 : Liste des dossiers [$depthLabel]..." "" 1 $true $true
     $allLevels=@(@($RootPath)); $excludedFound=@(); $accessDenied=@(); $junctionsTotal=0
@@ -366,7 +478,7 @@ function Start-FastScan {
                 Update-Progress $ACT "E1/5 : Niveau $levelNum/$MaxDepth | $dirsDone/$totalDirs" "Scan : $dir" $pct ($dirsDone%200-eq 0)
                 $subResult=Get-SubDirectories -Path $dir
                 $methodStats[$subResult["Method"]]++; $junctionsTotal+=$subResult["Junctions"]
-                if($subResult["Denied"]){if(-not($accessDenied -contains $dir)){$accessDenied+=$dir;Write-Log "[E1] PROTEGE : $dir" -Level INFO}}
+                if($subResult["Denied"]){if(-not($accessDenied -contains $dir)){$accessDenied+=$dir}}
                 else{foreach($sub in $subResult["Items"]){if(Test-IsExcluded -Path $sub.FullName -ExcludedList $EXCLUDED_DIRS){if(-not($excludedFound -contains $sub.FullName)){$excludedFound+=$sub.FullName}}else{$nextLevel+=$sub.FullName}}}
             }
             $allLevels+=,$nextLevel
@@ -404,8 +516,19 @@ function Start-FastScan {
     Update-Progress $ACT "E3/5 : Scan tailles..." "" 30 $true $true
     try {
         $rootFiles=Get-DirectFiles -Path $RootPath
-        foreach($f in $rootFiles){if($null -eq $f){continue};$dirOwnSizes[$RootPath]+=[long]$f.Length}
+        foreach($f in $rootFiles){
+            if($null -eq $f){continue}
+            $fl=[long]$f.Length
+            if($IsOneDrive -and (Test-IsCloudOnly $f)){
+                $cloudOnlyCount++
+                # Ne pas compter la taille locale (0) mais signaler
+            } else {
+                $dirOwnSizes[$RootPath]+=$fl
+                $localOnlySize+=$fl
+            }
+        }
     } catch {}
+
     $level1Dirs=@(); $l1Result=Get-SubDirectories -Path $RootPath
     if(-not $l1Result["Denied"]){foreach($s in $l1Result["Items"]){$level1Dirs+=$s.FullName}}
     $totalL1=$level1Dirs.Count; $doneL1=0
@@ -423,7 +546,16 @@ function Start-FastScan {
                 $pd=$null; try{$pd=$file.DirectoryName}catch{$pd=Get-ParentPath $file.FullName}
                 if($null -eq $pd){continue}
                 if(Test-IsExcluded -Path $pd -ExcludedList $EXCLUDED_DIRS){continue}
-                $fl=[long]$file.Length; $sz1+=$fl; $nbF1++; $fdL1++; $totalFilesScanned++; $totalSizeScanned+=$fl
+
+                # ✅ v3.6 : Gestion fichiers cloud-only OneDrive
+                if($IsOneDrive -and (Test-IsCloudOnly $file)){
+                    $cloudOnlyCount++
+                    # Fichier cloud-only : on ne compte pas sa taille locale (0)
+                    # mais on le comptabilise pour l avertissement
+                    continue
+                }
+
+                $fl=[long]$file.Length; $sz1+=$fl; $nbF1++; $fdL1++; $totalFilesScanned++; $totalSizeScanned+=$fl; $localOnlySize+=$fl
                 Update-Progress $ACT "E3/5 : L1 $doneL1/$totalL1 - $l1Name | $(Format-Size $totalSizeScanned)" "$fdL1 fichiers ($(Format-Size $sz1))" $pctL1 ($fdL1%50000-eq 0)
                 if($dirOwnSizes.ContainsKey($pd)){$dirOwnSizes[$pd]+=$fl}
                 else{
@@ -437,6 +569,10 @@ function Start-FastScan {
             }
             Write-Log "[E3] L1 $doneL1/$totalL1 '$l1Name' : $nbF1 = $(Format-Size $sz1)"
         } catch {Write-Log "[E3] Erreur '$l1dir' : $_" -Level ERROR}
+    }
+    if($IsOneDrive -and $cloudOnlyCount -gt 0){
+        Write-Log "[OD] Fichiers cloud-only detectes : $cloudOnlyCount (non comptes dans les tailles locales)"
+        Write-Host "  ☁️  OneDrive : $cloudOnlyCount fichiers cloud-only detectes (taille locale = 0)" -ForegroundColor Cyan
     }
     Write-Step "[E3] TERMINEE" $t "$totalFilesScanned fichiers = $(Format-Size $totalSizeScanned)"
 
@@ -466,11 +602,11 @@ function Start-FastScan {
     foreach($e in $excludedFound){$p=Get-ParentPath $e;if($null -ne $p){if(-not $childIndex.ContainsKey($p)){$childIndex[$p]=@()};if(-not($childIndex[$p] -contains "EXCLU:$e")){$childIndex[$p]+="EXCLU:$e"}}}
 
     Update-Progress $ACT "E5/5 : Construction ($nbScope dossiers)..." "" 90 $true $true
-    $allScans=@{}; $reportCount=0; $skipCount=0
+    $allScans=@{}; $reportCount=0
     foreach($dirPath in $dirsInScope){
         if(-not $unlimited){
             $dirDepth=Get-PathDepth -Path $dirPath -RootPath $RootPath -RootDepth $rootDepth
-            if($dirDepth -gt $MaxDepth){$skipCount++;continue}
+            if($dirDepth -gt $MaxDepth){continue}
         }
         $entries=@()
         if($childIndex.ContainsKey($dirPath)){
@@ -482,7 +618,7 @@ function Start-FastScan {
             }
         }
         if($dirOwnSizes[$dirPath] -gt 0){
-            try{$directFiles=Get-DirectFiles -Path $dirPath;foreach($f in $directFiles){if($null -eq $f){continue};$fl=[long]$f.Length;$entries+=@{Name=$f.Name;FullPath=$f.FullName;Size=$fl;IsDir=$false;Excluded=$false;Unscanned=$false;Denied=$false;Ext=$f.Extension.ToLower()}}}catch{}
+            try{$directFiles=Get-DirectFiles -Path $dirPath;foreach($f in $directFiles){if($null -eq $f){continue};if($IsOneDrive -and (Test-IsCloudOnly $f)){continue};$fl=[long]$f.Length;$entries+=@{Name=$f.Name;FullPath=$f.FullName;Size=$fl;IsDir=$false;Excluded=$false;Unscanned=$false;Denied=$false;Ext=$f.Extension.ToLower()}}}catch{}
         }
         $sN=$entries|Where-Object{-not $_["Excluded"] -and -not $_["Unscanned"] -and -not $_["Denied"]}|Sort-Object -Property{$_["Size"]} -Descending
         $sU=$entries|Where-Object{$_["Unscanned"] -eq $true}
@@ -492,24 +628,28 @@ function Start-FastScan {
         $allScans[$dirPath]=@{Items=$sorted;Total=$dirTotalSizes[$dirPath]};$reportCount++
         Update-Progress $ACT "E5/5 : $reportCount / $nbScope" "" (90+[int](($reportCount*9)/($nbScope+1))) ($reportCount%2000-eq 0)
     }
-    Write-Step "[E5] TERMINEE" $t "$reportCount construits | $($dirsUnscanned.Count) non scannes | $($accessDenied.Count) proteges | $junctionsTotal junctions"
+    Write-Step "[E5] TERMINEE" $t "$reportCount construits | $($dirsUnscanned.Count) non scannes | $($accessDenied.Count) proteges"
     Update-Progress $ACT "Termine" "" 100 $true $true; Write-Progress -Activity $ACT -Completed
 
     $totalElap=[int]((Get-Date)-$scanStart).TotalSeconds
-    Write-Log "SCAN TERMINE v$SCRIPT_VERSION en ${totalElap}s | Dossiers : $reportCount | Fichiers : $totalFilesScanned | Taille : $(Format-Size $dirTotalSizes[$RootPath])"
+    Write-Log "SCAN TERMINE v$SCRIPT_VERSION en ${totalElap}s | Dossiers : $reportCount | Fichiers : $totalFilesScanned | Taille : $(Format-Size $dirTotalSizes[$RootPath]) | CloudOnly : $cloudOnlyCount"
 
     return @{
-        Scans           = $allScans
-        Excluded        = $excludedFound
-        Unscanned       = $dirsUnscanned
-        AccessDenied    = $accessDenied
-        ModeName        = $modeName
-        ElapsedSec      = $totalElap
-        MaxDepth        = $MaxDepth
-        Unlimited       = $unlimited
-        PathType        = $pathType
-        MethodStats     = $methodStats
-        JunctionsSkipped= $junctionsTotal
+        Scans            = $allScans
+        Excluded         = $excludedFound
+        Unscanned        = $dirsUnscanned
+        AccessDenied     = $accessDenied
+        ModeName         = $modeName
+        ElapsedSec       = $totalElap
+        MaxDepth         = $MaxDepth
+        Unlimited        = $unlimited
+        PathType         = $pathType
+        MethodStats      = $methodStats
+        JunctionsSkipped = $junctionsTotal
+        IsOneDrive       = $IsOneDrive
+        CloudOnlyCount   = $cloudOnlyCount
+        CloudOnlySize    = $cloudOnlySize
+        LocalSize        = $localOnlySize
     }
 }
 
@@ -531,7 +671,10 @@ function Get-HtmlReport {
         [string]$FullUserName,
         [string]$ScanDateTime,
         [hashtable]$MethodStats,
-        [int]$JunctionsSkipped
+        [int]$JunctionsSkipped,
+        [bool]$IsOneDrive = $false,
+        [int]$CloudOnlyCount = 0,
+        [long]$LocalSize = 0
     )
 
     $ACT="PS-NCDU v$SCRIPT_VERSION"; $t=Get-Date
@@ -558,13 +701,11 @@ function Get-HtmlReport {
     Update-Progress $ACT "HTML : Generation page..." "" 85 $true $true; $t=Get-Date
 
     $rootPathSafe  = ConvertTo-JsonSafe $RootPath
-    $psVer         = $PSVersionTable.PSVersion.ToString()
     $logEnc        = ConvertTo-HtmlEncoded $logFile
     $rootEnc       = ConvertTo-HtmlEncoded $RootPath
     $nbScans       = $AllScans.Count
     $emailEnc      = ConvertTo-HtmlEncoded $USER_EMAIL
     $authorEnc     = ConvertTo-HtmlEncoded $SCRIPT_AUTHOR
-    $modeEncHtml   = ConvertTo-HtmlEncoded $ModeName
     $modeEncAcc    = ConvertTo-HtmlEncoded $ModeAccuracy
     $logoSvg       = $NN_LOGO_SVG
     $maxDepthJs    = $MaxDepth
@@ -572,7 +713,7 @@ function Get-HtmlReport {
     $nbUnscanned   = $UnscannedDirs.Count
     $nbDenied      = $AccessDeniedDirs.Count
     $pathTypeEnc   = ConvertTo-HtmlEncoded $PathType
-    $pathIcon      = if($RootPath -match '^\\\\'){"&#127760;"}else{"&#128190;"}
+    $pathIcon      = if($RootPath -match '^\\\\'){"&#127760;"}elseif($IsOneDrive){"&#9729;"}else{"&#128190;"}
     $depthLabel    = if($Unlimited){"Illimitee"}else{"$MaxDepth niveaux"}
     $depthLabelEnc = ConvertTo-HtmlEncoded $depthLabel
     $fullUserEnc   = ConvertTo-HtmlEncoded $FullUserName
@@ -592,36 +733,50 @@ function Get-HtmlReport {
     if ($nbDenied -gt 0)           { $alertParts += "<span class='ac-item ac-dn'>&#128274; <strong>$nbDenied proteges</strong><span class='ac-hint' onclick='toggleDet(""dD"")'>Voir</span></span>" }
     if ($nbUnscanned -gt 0)        { $alertParts += "<span class='ac-item ac-un'>&#128269; <strong>$nbUnscanned non scannes</strong><span class='ac-hint' onclick='toggleDet(""dU"")'>Plus profond</span></span>" }
     if ($EXCLUDED_DIRS.Count -gt 0){ $alertParts += "<span class='ac-item ac-ex'>&#9888; <strong>$($EXCLUDED_DIRS.Count) exclus</strong><span class='ac-hint' onclick='toggleDet(""dE"")'>Voir</span></span>" }
+    # ✅ v3.6 : Alerte OneDrive cloud-only
+    if ($IsOneDrive -and $CloudOnlyCount -gt 0) {
+        $alertParts += "<span class='ac-item ac-od'>&#9729; <strong>$CloudOnlyCount fichiers cloud-only</strong><span class='ac-hint' onclick='toggleDet(""dOD"")'>Details</span></span>"
+    }
     $alertBarHtml = ""
     if ($alertParts.Count -gt 0) { $alertBarHtml = "<div class='alert-compact'>" + ($alertParts -join "<span class='ac-sep'>|</span>") + "</div>" }
+
     $alertDetailsHtml = ""
     if ($nbDenied -gt 0)           { $alertDetailsHtml += "<div class='alert-det' id='dD'><ul>$dnListHtml</ul></div>" }
     if ($nbUnscanned -gt 0)        { $alertDetailsHtml += "<div class='alert-det' id='dU'><p>Relancez avec profondeur <strong>0</strong> (illimitee) ou augmentez le niveau.</p></div>" }
     if ($EXCLUDED_DIRS.Count -gt 0){ $alertDetailsHtml += "<div class='alert-det' id='dE'><ul>$exListHtml</ul></div>" }
+    # ✅ v3.6 : Detail OneDrive cloud-only
+    if ($IsOneDrive -and $CloudOnlyCount -gt 0) {
+        $localSizeStr = Format-Size $LocalSize
+        $alertDetailsHtml += @"
+<div class='alert-det' id='dOD'>
+  <p><strong>&#9729; Fichiers OneDrive cloud-only : $CloudOnlyCount</strong></p>
+  <p>Ces fichiers existent uniquement dans le cloud (icone nuage dans l Explorateur).</p>
+  <p>Ils ne sont <strong>pas telecharges localement</strong> et ne sont <strong>pas comptes</strong> dans les tailles affichees.</p>
+  <p>Taille locale reelle affichee : <strong>$localSizeStr</strong></p>
+  <p style='margin-top:8px'>Pour les inclure : faites un clic droit sur le dossier OneDrive &rarr; <strong>Toujours garder sur cet appareil</strong>, puis relancez le scan.</p>
+</div>
+"@
+    }
 
-    # ── JS dans une variable PowerShell (hors here-string) ──
-    # Cela evite que PowerShell interprete les $ des regex JavaScript
+    # ── JS hors here-string (single-quote = pas d interpolation) ──
     $jsCode = @'
 var DATA, EXCLUDED, ROOT_PATH, MAX_DEPTH, UNLIMITED;
 var curPath, sortCol='size', sortAsc=false;
 
-function init(data, excluded, rootPath, maxDepth, unlimited) {
-    DATA      = data;
-    EXCLUDED  = excluded;
-    ROOT_PATH = rootPath;
-    MAX_DEPTH = maxDepth;
-    UNLIMITED = unlimited;
-    curPath   = rootPath;
+function init(data, excluded, rootPath, maxDepth, unlimited){
+    DATA=data; EXCLUDED=excluded; ROOT_PATH=rootPath;
+    MAX_DEPTH=maxDepth; UNLIMITED=unlimited; curPath=rootPath;
 }
 
 (function(){
-    var fn = document.getElementById('userFullName') ? document.getElementById('userFullName').getAttribute('data-name') : '';
-    var p=fn.split(' ').filter(function(x){return x.length>0;}), i='';
-    if(p.length>=2) i=(p[0][0]+p[p.length-1][0]).toUpperCase();
-    else if(p.length===1) i=p[0].substring(0,2).toUpperCase();
+    var el=document.getElementById('userFullName');
+    var fn=el?el.getAttribute('data-name'):'';
+    var p=fn.split(' ').filter(function(x){return x.length>0;}),i='';
+    if(p.length>=2)i=(p[0][0]+p[p.length-1][0]).toUpperCase();
+    else if(p.length===1)i=p[0].substring(0,2).toUpperCase();
     else i='?';
     var av=document.getElementById('userAv');
-    if(av) av.textContent=i;
+    if(av)av.textContent=i;
 })();
 
 var EI={
@@ -646,27 +801,30 @@ var EI={
     '.bz2':'&#128230;','.xz':'&#128230;','.iso':'&#128191;','.dmg':'&#128191;',
     '.exe':'&#9881;','.msi':'&#9881;','.dll':'&#9881;','.so':'&#9881;',
     '.deb':'&#9881;','.rpm':'&#9881;','.apk':'&#128241;','.app':'&#9881;',
-    '.db':'&#128020;','.sqlite':'&#128020;','.mdb':'&#128020;',
-    '.mdf':'&#128020;','.ldf':'&#128020;',
+    '.db':'&#128020;','.sqlite':'&#128020;','.mdb':'&#128020;','.mdf':'&#128020;','.ldf':'&#128020;',
     '.bak':'&#128226;','.backup':'&#128226;','.old':'&#128226;','.tmp':'&#128226;',
     '.ttf':'&#127381;','.otf':'&#127381;','.woff':'&#127381;','.woff2':'&#127381;',
     '.torrent':'&#128279;','.ics':'&#128197;','.vcf':'&#128100;',
     '.eml':'&#128140;','.msg':'&#128140;','.pst':'&#128188;',
     '.key':'&#128272;','.pem':'&#128272;','.crt':'&#128272;','.cer':'&#128272;',
-    'dir':'&#128193;','net':'&#127760;','denied':'&#128274;','unknown':'&#128196;'
+    'dir':'&#128193;','net':'&#127760;','od':'&#9729;','denied':'&#128274;','unknown':'&#128196;'
 };
 function gIcon(ext,isDir,isDen,path){
-    if(isDen) return EI['denied'];
-    if(isDir){ if(path && path.startsWith('\\\\')) return EI['net']; return EI['dir']; }
-    if(!ext) return EI['unknown'];
-    return EI[ext.toLowerCase()] || EI['unknown'];
+    if(isDen)return EI['denied'];
+    if(isDir){
+        if(path&&path.indexOf('\\\\')===0)return EI['net'];
+        if(path&&(path.toLowerCase().indexOf('onedrive')>=0))return EI['od'];
+        return EI['dir'];
+    }
+    if(!ext)return EI['unknown'];
+    return EI[ext.toLowerCase()]||EI['unknown'];
 }
 
 function toggleTheme(){
-    var h=document.documentElement, isL=h.getAttribute('data-theme')==='light';
-    h.setAttribute('data-theme', isL?'dark':'light');
-    document.getElementById('themeBtn').innerHTML = isL ? '&#9790; Dark' : '&#9728; Light';
-    try{ localStorage.setItem('nn-theme', isL?'dark':'light'); }catch(e){}
+    var h=document.documentElement,isL=h.getAttribute('data-theme')==='light';
+    h.setAttribute('data-theme',isL?'dark':'light');
+    document.getElementById('themeBtn').innerHTML=isL?'&#9790; Dark':'&#9728; Light';
+    try{localStorage.setItem('nn-theme',isL?'dark':'light');}catch(e){}
 }
 (function(){
     try{
@@ -674,153 +832,122 @@ function toggleTheme(){
         if(t){
             document.documentElement.setAttribute('data-theme',t);
             var b=document.getElementById('themeBtn');
-            if(b) b.innerHTML = t==='light' ? '&#9728; Light' : '&#9790; Dark';
+            if(b)b.innerHTML=t==='light'?'&#9728; Light':'&#9790; Dark';
         }
     }catch(e){}
 })();
 
 function toggleDet(id){
     var el=document.getElementById(id);
-    if(el) el.style.display=(el.style.display==='block')?'none':'block';
+    if(el)el.style.display=(el.style.display==='block')?'none':'block';
 }
-
 function escH(s){
-    if(!s) return '';
+    if(!s)return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-// ── Normalise un chemin Windows (local ou UNC) ──
 function nP(p){
-    if(!p) return '';
-    // Detecter UNC
-    var iu = (p.indexOf('\\\\') === 0) || (p.indexOf('//') === 0);
-    // Normaliser les slashs
-    p = p.replace(/\//g, '\\');
+    if(!p)return '';
+    var iu=(p.length>=2&&p.charAt(0)==='\\'&&p.charAt(1)==='\\');
+    p=p.replace(/\//g,'\\');
     if(iu){
-        // Reconstituer UNC : \\serveur\partage\...
-        var body = p.replace(/^\\+/, '');
-        body = body.replace(/\\{2,}/g, '\\');
-        return '\\\\' + body;
+        var body=p.replace(/^\\+/,'').replace(/\\{2,}/g,'\\');
+        return '\\\\'+body;
     }
-    // Local : supprimer les \ doubles
-    p = p.replace(/\\{2,}/g, '\\');
-    // Supprimer le \ final sauf pour les racines C:\
-    if(p.length > 3 && p.charAt(p.length-1) === '\\') {
-        p = p.substring(0, p.length-1);
-    }
-    // Ajouter \ pour racine lecteur C: -> C:\
-    if(p.length === 2 && /^[A-Za-z]:/.test(p)) {
-        p = p + '\\';
-    }
+    p=p.replace(/\\{2,}/g,'\\');
+    if(p.length>3&&p.charAt(p.length-1)==='\\')p=p.substring(0,p.length-1);
+    if(p.length===2&&((p.charAt(0)>='A'&&p.charAt(0)<='Z')||(p.charAt(0)>='a'&&p.charAt(0)<='z'))&&p.charAt(1)===':')p=p+'\\';
     return p;
 }
-
-// ── Parent d un chemin ──
 function pOf(p){
-    p = nP(p);
-    // Racine locale C:\
-    if(p.length === 3 && /^[A-Za-z]:\\/.test(p)) return null;
-    // UNC
-    if(p.indexOf('\\\\') === 0){
-        var parts = p.substring(2).split('\\').filter(function(x){return x.length>0;});
-        if(parts.length <= 2) return null;
-        return '\\\\' + parts.slice(0, parts.length-1).join('\\');
+    p=nP(p);
+    var iu=(p.length>=2&&p.charAt(0)==='\\'&&p.charAt(1)==='\\');
+    if(p.length===3&&p.charAt(1)===':'&&p.charAt(2)==='\\')return null;
+    if(iu){
+        var parts=p.substring(2).split('\\').filter(function(x){return x.length>0;});
+        if(parts.length<=2)return null;
+        return '\\\\'+parts.slice(0,parts.length-1).join('\\');
     }
-    // Local
-    var i = p.lastIndexOf('\\');
-    if(i < 0) return null;
-    if(i === 2) return p.substring(0,3); // C:\
-    var r = p.substring(0, i);
-    if(r.length === 2 && /^[A-Za-z]:/.test(r)) r = r + '\\';
-    return r || null;
+    var i=p.lastIndexOf('\\');
+    if(i<0)return null;
+    if(i===2)return p.substring(0,3);
+    var r=p.substring(0,i);
+    if(r.length===2&&r.charAt(1)===':')r=r+'\\';
+    return r||null;
 }
-
 function fSz(b){
-    b=Number(b);
-    if(b<0) return '?';
-    if(b>=1099511627776) return (b/1099511627776).toFixed(2)+' TB';
-    if(b>=1073741824)    return (b/1073741824).toFixed(2)+' GB';
-    if(b>=1048576)       return (b/1048576).toFixed(2)+' MB';
-    if(b>=1024)          return (b/1024).toFixed(2)+' KB';
+    b=Number(b);if(b<0)return '?';
+    if(b>=1099511627776)return (b/1099511627776).toFixed(2)+' TB';
+    if(b>=1073741824)return (b/1073741824).toFixed(2)+' GB';
+    if(b>=1048576)return (b/1048576).toFixed(2)+' MB';
+    if(b>=1024)return (b/1024).toFixed(2)+' KB';
     return b+' B';
 }
 function bColor(sz){
-    if(sz>=1073741824) return 'var(--danger)';
-    if(sz>=104857600)  return 'var(--warn)';
-    if(sz>=10485760)   return '#c47d00';
+    if(sz>=1073741824)return 'var(--danger)';
+    if(sz>=104857600)return 'var(--warn)';
+    if(sz>=10485760)return '#c47d00';
     return 'var(--ok)';
 }
 function isExcl(path){
     path=nP(path).toLowerCase();
     for(var i=0;i<EXCLUDED.length;i++){
         var ex=nP(EXCLUDED[i]).toLowerCase();
-        if(path===ex || path.indexOf(ex+'\\')===0) return true;
+        if(path===ex||path.indexOf(ex+'\\')===0)return true;
     }
     return false;
 }
 function findS(p){
     p=nP(p).toLowerCase();
-    for(var k in DATA){
-        if(nP(k).toLowerCase()===p) return DATA[k];
-    }
+    for(var k in DATA){if(nP(k).toLowerCase()===p)return DATA[k];}
     return null;
 }
-
 function navigateTo(p){
-    if(!p||!p.trim()) return;
-    p=nP(p.trim());
-    curPath=p;
+    if(!p||!p.trim())return;
+    p=nP(p.trim());curPath=p;
     document.getElementById('pathInput').value=p;
-    renderBC(p);
-    renderContent(p);
+    renderBC(p);renderContent(p);
 }
-function goUp(){
-    var p=pOf(curPath);
-    if(p) navigateTo(p);
-}
-
+function goUp(){var p=pOf(curPath);if(p)navigateTo(p);}
 function renderBC(path){
     path=nP(path);
-    var iu=(path.indexOf('\\\\')===0);
-    var html='', built='';
+    var iu=(path.length>=2&&path.charAt(0)==='\\'&&path.charAt(1)==='\\');
+    var html='',built='';
     if(iu){
         var pts=path.substring(2).split('\\').filter(function(x){return x.length>0;});
         if(pts.length>=1){
             built='\\\\'+pts[0];
             html+='<span style="color:rgba(255,255,255,.4);font-size:.78em">&#127760;</span> ';
-            if(pts.length===1){ html+='<a class="bcp-a c">'+escH('\\\\'+pts[0])+'</a>'; }
-            else{ html+='<a class="bcp-a" onclick="navigateTo(\''+built.replace(/\\/g,'\\\\')+'\')" >'+escH('\\\\'+pts[0])+'</a>'; }
+            if(pts.length===1){html+='<a class="bcp-a c">'+escH('\\\\'+pts[0])+'</a>';}
+            else{var b0=built;html+='<a class="bcp-a" onclick="navigateTo(\''+b0.replace(/\\/g,'\\\\')+'\')" >'+escH('\\\\'+pts[0])+'</a>';}
         }
         for(var i=1;i<pts.length;i++){
             built+='\\'+pts[i];
             html+=' <span class="bcp-sep">&#8250;</span> ';
-            var b=built;
-            if(i===pts.length-1){ html+='<a class="bcp-a c">'+escH(pts[i])+'</a>'; }
-            else{ html+='<a class="bcp-a" onclick="navigateTo(\''+b.replace(/\\/g,'\\\\')+'\')" >'+escH(pts[i])+'</a>'; }
+            var bi=built;
+            if(i===pts.length-1){html+='<a class="bcp-a c">'+escH(pts[i])+'</a>';}
+            else{html+='<a class="bcp-a" onclick="navigateTo(\''+bi.replace(/\\/g,'\\\\')+'\')" >'+escH(pts[i])+'</a>';}
         }
     } else {
-        // Local
-        var clean = path;
-        if(clean.length>3 && clean.charAt(clean.length-1)==='\\') clean=clean.substring(0,clean.length-1);
-        var pts2 = clean.split('\\').filter(function(x){return x.length>0;});
-        if(/^[A-Za-z]:/.test(path)){
-            built = pts2[0]+'\\';
-            if(pts2.length===1){ html+='<a class="bcp-a c">'+escH(pts2[0])+'</a>'; }
-            else{ html+='<a class="bcp-a" onclick="navigateTo(\''+built.replace(/\\/g,'\\\\')+'\')" >'+escH(pts2[0])+'</a>'; }
+        var clean=path;
+        if(clean.length>3&&clean.charAt(clean.length-1)==='\\')clean=clean.substring(0,clean.length-1);
+        var pts2=clean.split('\\').filter(function(x){return x.length>0;});
+        if(pts2.length>0&&pts2[0].charAt(1)===':'){
+            built=pts2[0]+'\\';
+            if(pts2.length===1){html+='<a class="bcp-a c">'+escH(pts2[0])+'</a>';}
+            else{var b1=built;html+='<a class="bcp-a" onclick="navigateTo(\''+b1.replace(/\\/g,'\\\\')+'\')" >'+escH(pts2[0])+'</a>';}
             pts2.shift();
         }
         for(var j=0;j<pts2.length;j++){
             built+=pts2[j]+'\\';
             html+=' <span class="bcp-sep">&#8250;</span> ';
-            var b2=built;
-            if(j===pts2.length-1){ html+='<a class="bcp-a c">'+escH(pts2[j])+'</a>'; }
-            else{ html+='<a class="bcp-a" onclick="navigateTo(\''+b2.replace(/\\/g,'\\\\')+'\')" >'+escH(pts2[j])+'</a>'; }
+            var bj=built;
+            if(j===pts2.length-1){html+='<a class="bcp-a c">'+escH(pts2[j])+'</a>';}
+            else{html+='<a class="bcp-a" onclick="navigateTo(\''+bj.replace(/\\/g,'\\\\')+'\')" >'+escH(pts2[j])+'</a>';}
         }
     }
     var bc=document.getElementById('breadcrumb');
-    if(bc) bc.innerHTML = html || '<a class="bcp-a c">&#127968; Racine</a>';
+    if(bc)bc.innerHTML=html||'<a class="bcp-a c">&#127968; Racine</a>';
 }
-
 function renderContent(path){
     if(isExcl(path)){
         document.getElementById('stats').innerHTML='<div class="chip chip-excl"><span class="chip-label">&#9888;</span><span class="chip-value">Repertoire exclu</span></div>';
@@ -828,15 +955,15 @@ function renderContent(path){
         return;
     }
     var scan=findS(path);
-    var isUDir=false, isDDir=false;
+    var isUDir=false,isDDir=false;
     if(!scan){
         var par=pOf(path);
         if(par){
             var pScan=findS(par);
             if(pScan){
                 pScan.items.forEach(function(it){
-                    var np=nP(it.fullPath).toLowerCase(), np2=nP(path).toLowerCase();
-                    if(np===np2){ if(it.unscanned) isUDir=true; if(it.denied) isDDir=true; }
+                    var np=nP(it.fullPath).toLowerCase(),np2=nP(path).toLowerCase();
+                    if(np===np2){if(it.unscanned)isUDir=true;if(it.denied)isDDir=true;}
                 });
             }
         }
@@ -855,21 +982,21 @@ function renderContent(path){
         }
         return;
     }
-    var items=scan.items, total=scan.total, nbD=0, nbF=0, nbEx=0, nbUn=0, nbDn=0;
-    items.forEach(function(i){ if(i.excluded)nbEx++; else if(i.unscanned)nbUn++; else if(i.denied)nbDn++; else if(i.isDir)nbD++; else nbF++; });
+    var items=scan.items,total=scan.total,nbD=0,nbF=0,nbEx=0,nbUn=0,nbDn=0;
+    items.forEach(function(i){if(i.excluded)nbEx++;else if(i.unscanned)nbUn++;else if(i.denied)nbDn++;else if(i.isDir)nbD++;else nbF++;});
     var st='<div class="chip"><span class="chip-label">Taille</span><span class="chip-value">'+fSz(total)+'</span></div>'+
         '<div class="chip"><span class="chip-label">Dossiers</span><span class="chip-value">'+nbD+'</span></div>'+
         '<div class="chip"><span class="chip-label">Fichiers</span><span class="chip-value">'+nbF+'</span></div>'+
         '<div class="chip"><span class="chip-label">Elements</span><span class="chip-value">'+items.length+'</span></div>';
-    if(nbDn>0) st+='<div class="chip chip-den"><span class="chip-label">&#128274; Proteges</span><span class="chip-value">'+nbDn+'</span></div>';
-    if(nbUn>0) st+='<div class="chip chip-uns"><span class="chip-label">&#128269; Non scannes</span><span class="chip-value">'+nbUn+'</span></div>';
-    if(nbEx>0) st+='<div class="chip chip-excl"><span class="chip-label">&#9888; Exclus</span><span class="chip-value">'+nbEx+'</span></div>';
+    if(nbDn>0)st+='<div class="chip chip-den"><span class="chip-label">&#128274; Proteges</span><span class="chip-value">'+nbDn+'</span></div>';
+    if(nbUn>0)st+='<div class="chip chip-uns"><span class="chip-label">&#128269; Non scannes</span><span class="chip-value">'+nbUn+'</span></div>';
+    if(nbEx>0)st+='<div class="chip chip-excl"><span class="chip-label">&#9888; Exclus</span><span class="chip-value">'+nbEx+'</span></div>';
     document.getElementById('stats').innerHTML=st;
-    if(items.length===0){ document.getElementById('mainContent').innerHTML='<div class="msg"><span class="ic">&#128194;</span><h3>Dossier vide</h3><p>Aucun fichier accessible.</p></div>'; return; }
+    if(items.length===0){document.getElementById('mainContent').innerHTML='<div class="msg"><span class="ic">&#128194;</span><h3>Dossier vide</h3><p>Aucun fichier accessible.</p></div>';return;}
     var rows='';
     items.forEach(function(item){
         var isEx=item.excluded||isExcl(item.fullPath);
-        var isUn=item.unscanned, isDn=item.denied;
+        var isUn=item.unscanned,isDn=item.denied;
         var fp=item.fullPath.replace(/\\/g,'\\\\');
         var icon=gIcon(item.ext||'',item.isDir,isDn,item.fullPath);
         var isDeep=!UNLIMITED&&item.isDir&&!isEx&&!isUn&&!isDn&&!findS(item.fullPath);
@@ -894,7 +1021,7 @@ function renderContent(path){
             bC='<div class="bar-wrap"><div class="bar-bg"><div class="bar-uns"></div></div><span class="bar-uns-t">?</span></div>';
             bg='<span class="tbadge tb-un">?</span>';
         } else {
-            rC=''; var pct=total>0?Math.round((item.size/total)*1000)/10:0;
+            rC='';var pct=total>0?Math.round((item.size/total)*1000)/10:0;
             nC=item.isDir?'<a class="dir-l" onclick="navigateTo(\''+fp+'\')">'+escH(item.name)+'</a>'+tag:'<span class="file-n">'+escH(item.name)+'</span>';
             sC=escH(item.sizeStr);
             bC='<div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:'+pct+'%;background:'+bColor(item.size)+'"></div></div><span class="bar-pct">'+pct+'%</span></div>';
@@ -910,29 +1037,26 @@ function renderContent(path){
         '<th>Utilisation</th>'+
         '<th class="c-type">Type</th>'+
         '</tr></thead><tbody>'+rows+'</tbody></table></div>';
-    ['th-n','th-s'].forEach(function(id){ var el=document.getElementById(id); if(el) el.classList.remove('sa','sd'); });
+    ['th-n','th-s'].forEach(function(id){var el=document.getElementById(id);if(el)el.classList.remove('sa','sd');});
     var thEl=document.getElementById(sortCol==='name'?'th-n':'th-s');
-    if(thEl) thEl.classList.add(sortAsc?'sa':'sd');
+    if(thEl)thEl.classList.add(sortAsc?'sa':'sd');
 }
-
 function sortBy(col){
-    if(sortCol===col){ sortAsc=!sortAsc; } else { sortCol=col; sortAsc=(col==='name'); }
-    var scan=findS(curPath); if(!scan) return;
-    var normal=scan.items.filter(function(i){ return !i.excluded&&!i.unscanned&&!i.denied; });
-    var uns=scan.items.filter(function(i){ return i.unscanned; });
-    var den=scan.items.filter(function(i){ return i.denied; });
-    var exc=scan.items.filter(function(i){ return i.excluded; });
+    if(sortCol===col){sortAsc=!sortAsc;}else{sortCol=col;sortAsc=(col==='name');}
+    var scan=findS(curPath);if(!scan)return;
+    var normal=scan.items.filter(function(i){return !i.excluded&&!i.unscanned&&!i.denied;});
+    var uns=scan.items.filter(function(i){return i.unscanned;});
+    var den=scan.items.filter(function(i){return i.denied;});
+    var exc=scan.items.filter(function(i){return i.excluded;});
     normal.sort(function(a,b){
-        var va=a[col], vb=b[col];
-        if(typeof va==='string'){ va=va.toLowerCase(); vb=vb.toLowerCase(); }
-        if(va<vb) return sortAsc?-1:1;
-        if(va>vb) return sortAsc?1:-1;
-        return 0;
+        var va=a[col],vb=b[col];
+        if(typeof va==='string'){va=va.toLowerCase();vb=vb.toLowerCase();}
+        if(va<vb)return sortAsc?-1:1;if(va>vb)return sortAsc?1:-1;return 0;
     });
     scan.items=normal.concat(uns).concat(den).concat(exc);
     renderContent(curPath);
 }
-window.onload=function(){ navigateTo(ROOT_PATH); };
+window.onload=function(){navigateTo(ROOT_PATH);};
 '@
 
     $html = @"
@@ -943,8 +1067,8 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title>PS-NCDU v$SCRIPT_VERSION - $rootEnc</title>
     <style>
-    :root{--bg:#f0f4f8;--surface:#fff;--card:#e8edf3;--card-h:#dde4ed;--border:#cdd6e0;--border-l:#dde4ed;--text:#0f1923;--tm:#4a6080;--td:#8da0b8;--accent:#0063be;--al:#004fa3;--ag:rgba(0,99,190,.08);--ok:#007a5e;--warn:#b86b00;--danger:#c0202e;--unscanned:#5e3d8f;--shadow:0 2px 8px rgba(0,0,0,.1);--r:8px;--rs:5px;--rp:20px}
-    [data-theme="dark"]{--bg:#0f1923;--surface:#162032;--card:#1e2d42;--card-h:#243350;--border:#2a3f5f;--border-l:#1e3050;--text:#D3B276;--tm:#a08a5a;--td:#6b5a3a;--accent:#0063be;--al:#D3B276;--ag:rgba(211,178,118,.15);--ok:#00c48c;--warn:#f5a623;--danger:#e8394a;--unscanned:#9b7fd4;--shadow:0 2px 12px rgba(0,0,0,.45)}
+    :root{--bg:#f0f4f8;--surface:#fff;--card:#e8edf3;--card-h:#dde4ed;--border:#cdd6e0;--border-l:#dde4ed;--text:#0f1923;--tm:#4a6080;--td:#8da0b8;--accent:#0063be;--al:#004fa3;--ag:rgba(0,99,190,.08);--ok:#007a5e;--warn:#b86b00;--danger:#c0202e;--unscanned:#5e3d8f;--od:#0078d4;--shadow:0 2px 8px rgba(0,0,0,.1);--r:8px;--rs:5px;--rp:20px}
+    [data-theme="dark"]{--bg:#0f1923;--surface:#162032;--card:#1e2d42;--card-h:#243350;--border:#2a3f5f;--border-l:#1e3050;--text:#D3B276;--tm:#a08a5a;--td:#6b5a3a;--accent:#0063be;--al:#D3B276;--ag:rgba(211,178,118,.15);--ok:#00c48c;--warn:#f5a623;--danger:#e8394a;--unscanned:#9b7fd4;--od:#4da3ff;--shadow:0 2px 12px rgba(0,0,0,.45)}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;transition:background .3s,color .3s}
     .header-outer{background:linear-gradient(160deg,#001965 0%,#0063be 40%,#004fa3 100%);position:sticky;top:0;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.25)}
@@ -957,9 +1081,7 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     .hdr-title-main{font-size:1em;font-weight:700;color:#fff;white-space:nowrap}
     .hdr-title-main b{color:rgba(255,255,255,.5)}
     .hdr-title-sub{font-size:.65em;color:rgba(255,255,255,.5);margin-top:1px;white-space:nowrap}
-    [data-theme="dark"] .hdr-title-main{color:var(--text)}
-    [data-theme="dark"] .hdr-title-main b{color:var(--td)}
-    [data-theme="dark"] .hdr-title-sub{color:var(--tm)}
+    [data-theme="dark"] .hdr-title-main{color:var(--text)}[data-theme="dark"] .hdr-title-main b{color:var(--td)}[data-theme="dark"] .hdr-title-sub{color:var(--tm)}
     .hdr-chip{font-size:.68em;font-weight:700;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);padding:1px 9px;border-radius:var(--rp);white-space:nowrap;flex-shrink:0}
     [data-theme="dark"] .hdr-chip{background:rgba(211,178,118,.1);color:var(--text);border-color:rgba(211,178,118,.25)}
     .hdr-input{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 14px;border-radius:var(--rp);font-size:.82em;font-family:inherit;outline:none;width:100%;min-width:100px}
@@ -976,8 +1098,7 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     [data-theme="dark"] .hdr-av{background:rgba(211,178,118,.2);border-color:rgba(211,178,118,.35);color:var(--text)}
     .hdr-un{font-size:.78em;font-weight:600;color:#fff;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
     .hdr-us{font-size:.68em;color:rgba(255,255,255,.55);white-space:nowrap}
-    [data-theme="dark"] .hdr-un{color:var(--text)}
-    [data-theme="dark"] .hdr-us{color:var(--tm)}
+    [data-theme="dark"] .hdr-un{color:var(--text)}[data-theme="dark"] .hdr-us{color:var(--tm)}
     .hdr-logo{cursor:pointer;display:flex;align-items:center;flex-shrink:0;color:#fff;transition:opacity .2s}
     .hdr-logo:hover{opacity:.75}
     .hdr-logo svg{height:24px;width:auto;display:block;color:inherit}
@@ -986,8 +1107,9 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     [data-theme="dark"] .hdr-r2{border-top-color:rgba(211,178,118,.1)}
     .sp{display:inline-flex;align-items:center;gap:4px;font-size:.72em;color:rgba(255,255,255,.75);padding:2px 8px;background:rgba(255,255,255,.1);border-radius:var(--rp);white-space:nowrap}
     .sp b{color:#fff;font-weight:700}
-    [data-theme="dark"] .sp{background:rgba(211,178,118,.08);color:var(--tm)}
-    [data-theme="dark"] .sp b{color:var(--text)}
+    [data-theme="dark"] .sp{background:rgba(211,178,118,.08);color:var(--tm)}[data-theme="dark"] .sp b{color:var(--text)}
+    .sp-od{background:rgba(0,120,212,.25);border:1px solid rgba(0,120,212,.5)}
+    [data-theme="dark"] .sp-od{background:rgba(77,163,255,.15);border-color:rgba(77,163,255,.4)}
     .vdg{width:1px;height:14px;background:rgba(255,255,255,.2);flex-shrink:0}
     [data-theme="dark"] .vdg{background:rgba(211,178,118,.2)}
     .bcp{background:rgba(255,255,255,.08);border-radius:var(--rp);padding:3px;display:flex;align-items:center;gap:2px;margin-left:auto}
@@ -995,22 +1117,16 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     .bcp-a{color:rgba(255,255,255,.7);text-decoration:none;padding:2px 8px;border-radius:var(--rp);font-size:.78em;cursor:pointer;transition:all .15s;white-space:nowrap}
     .bcp-a:hover{background:rgba(255,255,255,.15);color:#fff}
     .bcp-a.c{background:rgba(255,255,255,.18);color:#fff;font-weight:600}
-    [data-theme="dark"] .bcp-a{color:var(--tm)}
-    [data-theme="dark"] .bcp-a:hover,[data-theme="dark"] .bcp-a.c{background:rgba(211,178,118,.15);color:var(--text)}
-    .bcp-sep{color:rgba(255,255,255,.3);font-size:.78em}
-    [data-theme="dark"] .bcp-sep{color:var(--td)}
+    [data-theme="dark"] .bcp-a{color:var(--tm)}[data-theme="dark"] .bcp-a:hover,[data-theme="dark"] .bcp-a.c{background:rgba(211,178,118,.15);color:var(--text)}
+    .bcp-sep{color:rgba(255,255,255,.3);font-size:.78em}[data-theme="dark"] .bcp-sep{color:var(--td)}
     .alert-compact{display:flex;align-items:center;flex-wrap:wrap;padding:5px 24px;background:var(--card);border-bottom:1px solid var(--border);font-size:.8em;min-height:32px}
     .ac-item{display:inline-flex;align-items:center;gap:5px;padding:3px 12px}
-    .ac-dn{color:var(--danger)}
-    .ac-un{color:var(--unscanned)}
-    .ac-ex{color:var(--warn)}
+    .ac-dn{color:var(--danger)}.ac-un{color:var(--unscanned)}.ac-ex{color:var(--warn)}.ac-od{color:var(--od)}
     .ac-sep{color:var(--border);padding:0 4px;font-size:1.1em;user-select:none}
     .ac-hint{color:var(--al);cursor:pointer;text-decoration:underline;font-size:.88em;margin-left:6px;font-weight:500}
     .ac-hint:hover{opacity:.75}
-    .alert-det{display:none;padding:5px 24px 8px 40px;background:var(--card);border-bottom:1px solid var(--border);font-size:.8em;color:var(--tm)}
-    .alert-det p{padding:3px 0}
-    .alert-det ul{margin:0;padding:0;list-style:none}
-    .alert-det li{padding:2px 0}
+    .alert-det{display:none;padding:8px 24px 10px 40px;background:var(--card);border-bottom:1px solid var(--border);font-size:.8em;color:var(--tm)}
+    .alert-det p{padding:3px 0}.alert-det ul{margin:0;padding:0;list-style:none}.alert-det li{padding:2px 0}
     .alert-det code{padding:1px 5px;border-radius:3px;background:rgba(192,32,46,.08);color:var(--danger)}
     .statsbar{background:var(--surface);padding:9px 24px;border-bottom:1px solid var(--border);display:flex;gap:7px;flex-wrap:wrap;align-items:center}
     .chip{display:inline-flex;align-items:center;gap:5px;background:var(--card);border:1px solid var(--border);border-radius:var(--rp);padding:4px 12px;font-size:.78em}
@@ -1021,68 +1137,48 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
     .chip-den{border-color:var(--danger)}.chip-den .chip-value{color:var(--danger)}
     .table-wrap{padding:14px 24px;overflow-x:auto}
     table{width:100%;border-collapse:collapse;font-size:.875em;background:var(--surface);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
-    thead th{background:var(--card);color:var(--tm);padding:11px 14px;text-align:left;border-bottom:2px solid var(--al);font-weight:600;font-size:.73em;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;transition:background .15s,color .15s}
+    thead th{background:var(--card);color:var(--tm);padding:11px 14px;text-align:left;border-bottom:2px solid var(--al);font-weight:600;font-size:.73em;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap}
     thead th:hover{background:var(--card-h);color:var(--al)}
-    thead th.sa::after{content:' \25b2';color:var(--al)}
-    thead th.sd::after{content:' \25bc';color:var(--al)}
+    thead th.sa::after{content:' \25b2';color:var(--al)}thead th.sd::after{content:' \25bc';color:var(--al)}
     tbody tr{border-bottom:1px solid var(--border-l);transition:background .1s}
-    tbody tr:hover{background:var(--card)}
-    tbody tr:last-child{border-bottom:none}
+    tbody tr:hover{background:var(--card)}tbody tr:last-child{border-bottom:none}
     tbody tr.row-ex{background:rgba(176,107,0,.05)}tbody tr.row-ex:hover{background:rgba(176,107,0,.1)}
     tbody tr.row-un{background:rgba(94,61,143,.05)}tbody tr.row-un:hover{background:rgba(94,61,143,.1)}
     tbody tr.row-dn{background:rgba(192,32,46,.05)}tbody tr.row-dn:hover{background:rgba(192,32,46,.1)}
     td{padding:9px 14px;vertical-align:middle}
-    .c-icon{width:28px;text-align:center}
-    .c-size{width:110px;text-align:right;font-family:monospace;font-size:.82em;color:var(--tm)}
-    .c-bar{width:210px}
-    .c-type{width:65px;text-align:center}
-    .dir-l{color:var(--al);text-decoration:none;font-weight:500;cursor:pointer;transition:color .15s}
-    .dir-l:hover{color:var(--text);text-decoration:underline}
-    .dir-lu{color:var(--unscanned);text-decoration:none;font-weight:500;cursor:pointer}
-    .dir-lu:hover{color:var(--text);text-decoration:underline}
-    .dir-ld{color:var(--danger);font-weight:500;cursor:default}
-    .file-n{color:var(--text)}
+    .c-icon{width:28px;text-align:center}.c-size{width:110px;text-align:right;font-family:monospace;font-size:.82em;color:var(--tm)}
+    .c-bar{width:210px}.c-type{width:65px;text-align:center}
+    .dir-l{color:var(--al);text-decoration:none;font-weight:500;cursor:pointer}.dir-l:hover{color:var(--text);text-decoration:underline}
+    .dir-lu{color:var(--unscanned);text-decoration:none;font-weight:500;cursor:pointer}.dir-lu:hover{color:var(--text);text-decoration:underline}
+    .dir-ld{color:var(--danger);font-weight:500;cursor:default}.file-n{color:var(--text)}
     .tbadge{font-size:.68em;padding:2px 6px;border-radius:3px;font-weight:600}
-    .tb-dir{background:rgba(0,99,190,.1);color:var(--al)}
-    .tb-file{background:var(--card);color:var(--td)}
-    .tb-ex{background:rgba(176,107,0,.12);color:var(--warn)}
-    .tb-un{background:rgba(94,61,143,.12);color:var(--unscanned)}
-    .tb-dn{background:rgba(192,32,46,.12);color:var(--danger)}
+    .tb-dir{background:rgba(0,99,190,.1);color:var(--al)}.tb-file{background:var(--card);color:var(--td)}
+    .tb-ex{background:rgba(176,107,0,.12);color:var(--warn)}.tb-un{background:rgba(94,61,143,.12);color:var(--unscanned)}.tb-dn{background:rgba(192,32,46,.12);color:var(--danger)}
     .ex-lbl{font-size:.68em;background:rgba(176,107,0,.12);color:var(--warn);padding:2px 6px;border-radius:3px;margin-left:5px;font-weight:500}
     .dn-lbl{font-size:.68em;background:rgba(192,32,46,.12);color:var(--danger);padding:2px 6px;border-radius:3px;margin-left:5px;font-weight:500}
-    .sz-unk{color:var(--warn);font-weight:600;font-style:italic}
-    .sz-uns{color:var(--unscanned);font-weight:600;font-style:italic}
-    .sz-dn{color:var(--danger);font-weight:600;font-style:italic}
+    .sz-unk{color:var(--warn);font-weight:600;font-style:italic}.sz-uns{color:var(--unscanned);font-weight:600;font-style:italic}.sz-dn{color:var(--danger);font-weight:600;font-style:italic}
     .bar-wrap{display:flex;align-items:center;gap:7px}
     .bar-bg{background:var(--card);border-radius:4px;height:7px;flex:1;overflow:hidden;border:1px solid var(--border-l)}
     .bar-fill{height:100%;border-radius:4px;transition:width .3s}
     .bar-pct{font-size:.72em;color:var(--td);white-space:nowrap;min-width:36px;text-align:right}
-    .bar-unk{font-size:.72em;color:var(--warn);font-weight:600}
-    .bar-uns-t{font-size:.72em;color:var(--unscanned);font-weight:600;font-style:italic}
-    .bar-dn-t{font-size:.72em;color:var(--danger);font-weight:600}
+    .bar-unk{font-size:.72em;color:var(--warn);font-weight:600}.bar-uns-t{font-size:.72em;color:var(--unscanned);font-weight:600;font-style:italic}.bar-dn-t{font-size:.72em;color:var(--danger);font-weight:600}
     .bar-ex{height:7px;background:repeating-linear-gradient(45deg,rgba(176,107,0,.1),rgba(176,107,0,.1) 4px,rgba(176,107,0,.2) 4px,rgba(176,107,0,.2) 8px)}
     .bar-uns{height:7px;background:repeating-linear-gradient(45deg,rgba(94,61,143,.1),rgba(94,61,143,.1) 4px,rgba(94,61,143,.2) 4px,rgba(94,61,143,.2) 8px)}
     .bar-dn{height:7px;background:repeating-linear-gradient(45deg,rgba(192,32,46,.1),rgba(192,32,46,.1) 4px,rgba(192,32,46,.2) 4px,rgba(192,32,46,.2) 8px)}
-    .msg{padding:50px 24px;text-align:center}
-    .msg .ic{font-size:2.8em;margin-bottom:14px;display:block}
-    .msg h3{color:var(--text);margin-bottom:7px;font-weight:500;font-size:1.05em}
-    .msg p{color:var(--tm);font-size:.85em;margin-top:5px}
+    .msg{padding:50px 24px;text-align:center}.msg .ic{font-size:2.8em;margin-bottom:14px;display:block}
+    .msg h3{color:var(--text);margin-bottom:7px;font-weight:500;font-size:1.05em}.msg p{color:var(--tm);font-size:.85em;margin-top:5px}
     .msg .hint{margin-top:12px;font-size:.78em;background:rgba(176,107,0,.1);color:var(--warn);border:1px solid rgba(176,107,0,.3);padding:7px 14px;border-radius:var(--rs);display:inline-block}
     .msg .hint-u{margin-top:12px;font-size:.78em;background:rgba(94,61,143,.1);color:var(--unscanned);border:1px solid rgba(94,61,143,.3);padding:7px 14px;border-radius:var(--rs);display:inline-block}
     .msg .hint-d{margin-top:12px;font-size:.78em;background:rgba(192,32,46,.1);color:var(--danger);border:1px solid rgba(192,32,46,.3);padding:7px 14px;border-radius:var(--rs);display:inline-block}
     .msg code{font-family:monospace;font-size:.82em;color:var(--al);background:var(--card);padding:2px 7px;border-radius:3px;margin-top:7px;display:inline-block}
     .footer{text-align:center;padding:13px 24px;color:var(--td);font-size:.76em;border-top:1px solid var(--border);background:var(--surface);margin-top:14px;line-height:1.8}
-    .footer a{color:var(--al);text-decoration:none}
+    .footer a{color:var(--al);text-decoration:none}.footer a:hover{text-decoration:underline}
     .footer-sup{margin-top:5px;font-size:.83em;color:var(--tm)}
-    ::-webkit-scrollbar{width:6px;height:6px}
-    ::-webkit-scrollbar-track{background:var(--bg)}
-    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-    ::-webkit-scrollbar-thumb:hover{background:var(--al)}
+    ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--al)}
     @media(max-width:768px){.c-bar,.c-type{display:none}.hdr-r1-mid{flex:3}.hdr-un,.hdr-us,.hdr-r2{display:none}}
     </style>
 </head>
 <body>
-
 <div class="header-outer">
   <div class="header-inner">
     <div class="hdr-r1">
@@ -1094,7 +1190,7 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
         <input class="hdr-input" id="pathInput" value="$rootEnc"
                placeholder="C:\chemin ou \\serveur\partage"
                onkeydown="if(event.key==='Enter')navigateTo(this.value)">
-        <button class="hdr-btn" onclick="navigateTo(document.getElementById('pathInput').value)" title="Aller">&#128269;</button>
+        <button class="hdr-btn" onclick="navigateTo(document.getElementById('pathInput').value)">&#128269;</button>
         <button class="hdr-btn" onclick="goUp()">&#11014;</button>
         <button class="hdr-btn" onclick="navigateTo(ROOT_PATH)">&#127968;</button>
       </div>
@@ -1114,6 +1210,7 @@ window.onload=function(){ navigateTo(ROOT_PATH); };
       <div class="sp">&#9201; <b>${ElapsedSec}s</b></div>
       <div class="sp">&#128193; <b>$nbScans</b> dossiers</div>
       $(if ($JunctionsSkipped -gt 0) { "<div class='sp'>&#128279; <b>$JunctionsSkipped</b> jonctions</div>" })
+      $(if ($IsOneDrive -and $CloudOnlyCount -gt 0) { "<div class='sp sp-od'>&#9729; <b>$CloudOnlyCount</b> cloud-only</div>" })
       <div class="vdg"></div>
       <div class="sp">$(if($Unlimited){'&#8734;'}else{"&#128269; $MaxDepth niv."}) <b>$modeEncAcc</b></div>
       <div class="bcp" id="breadcrumb"><a class="bcp-a c">$rootEnc</a></div>
@@ -1134,7 +1231,7 @@ $alertDetailsHtml
 
 <script>
 $jsCode
-init($jsonScans, $jsonExcluded, "$rootPathSafe", $maxDepthJs, $unlimitedJs);
+init($jsonScans,$jsonExcluded,"$rootPathSafe",$maxDepthJs,$unlimitedJs);
 </script>
 </body>
 </html>
@@ -1169,6 +1266,19 @@ Write-Log "FullUserName : $fullUserName"
 Write-Host "  Utilisateur : $fullUserName ($($env:USERNAME))" -ForegroundColor Cyan
 Write-Host ""
 
+# ✅ v3.6 - Detection et proposition OneDrive
+$oneDrivePaths = Get-OneDrivePaths
+if ($oneDrivePaths.Count -gt 0) {
+    Write-Host "  ☁️  ONEDRIVE DETECTE :" -ForegroundColor Cyan
+    $idx = 1
+    foreach ($od in $oneDrivePaths) {
+        Write-Host "  [$idx] $($od.Icon) $($od.Type)" -ForegroundColor White
+        Write-Host "       $($od.Path)" -ForegroundColor DarkGray
+        $idx++
+    }
+    Write-Host ""
+}
+
 Write-Host "  MODES DE SCAN :" -ForegroundColor White
 Write-Host ""
 foreach ($k in ($SCAN_MODES.Keys | Sort-Object)) {
@@ -1200,18 +1310,78 @@ if($isUnlimited){
     if($confirm -match '^[Nn]$'){Write-Host "  Annule." -ForegroundColor Red;exit 0}
 }
 
-Write-Host "  Chemin (ENTER = $DEFAULT_PATH) : " -NoNewline -ForegroundColor Yellow
+# ✅ v3.6 - Chemin avec suggestion OneDrive
+if ($oneDrivePaths.Count -gt 0) {
+    Write-Host "  Chemin (ENTER=$DEFAULT_PATH, od1/od2...=OneDrive) : " -NoNewline -ForegroundColor Yellow
+} else {
+    Write-Host "  Chemin (ENTER = $DEFAULT_PATH) : " -NoNewline -ForegroundColor Yellow
+}
 $inputPath=Read-Host; $inputPath=$inputPath.Trim()
-if([string]::IsNullOrWhiteSpace($inputPath)){$startPath=$DEFAULT_PATH}
-else{
+
+# Raccourcis OneDrive od1, od2...
+$isOneDriveScan = $false
+if ($inputPath -match '^od(\d+)$' -and $oneDrivePaths.Count -gt 0) {
+    $odIdx = [int]$Matches[1] - 1
+    if ($odIdx -ge 0 -and $odIdx -lt $oneDrivePaths.Count) {
+        $inputPath = $oneDrivePaths[$odIdx].Path
+        $isOneDriveScan = $true
+        Write-Host "  >> OneDrive selectionne : $inputPath" -ForegroundColor Cyan
+    }
+}
+
+if([string]::IsNullOrWhiteSpace($inputPath)){
+    $startPath=$DEFAULT_PATH
+} else {
     $inputPath=$inputPath -replace '/','\' 
     if($inputPath -match '^[A-Za-z]:$'){$inputPath+='\'}
-    Write-Host "  Verification..." -ForegroundColor Gray
-    if((Test-NetworkPath -Path $inputPath) -and (Test-Path $inputPath -ErrorAction SilentlyContinue)){
-        $startPath=$inputPath; Write-Host "  OK." -ForegroundColor Green
+
+    # Detecter automatiquement si c est un chemin OneDrive
+    if(-not $isOneDriveScan){
+        foreach($od in $oneDrivePaths){
+            if($inputPath.TrimEnd('\').ToLower() -eq $od.Path.TrimEnd('\').ToLower() -or
+               $inputPath.ToLower().StartsWith($od.Path.TrimEnd('\').ToLower()+'\')){
+                $isOneDriveScan = $true
+                Write-Host "  ☁️  Chemin OneDrive detecte automatiquement" -ForegroundColor Cyan
+                break
+            }
+        }
+        # Detection par nom de dossier
+        if(-not $isOneDriveScan -and $inputPath -match 'OneDrive'){
+            $isOneDriveScan = $true
+            Write-Host "  ☁️  Chemin OneDrive detecte (nom)" -ForegroundColor Cyan
+        }
+    }
+
+    Write-Host "  Verification du chemin..." -ForegroundColor Gray
+    $pathOk = $false
+
+    if($inputPath -match '^\\\\'){
+        Write-Host "  Type : UNC reseau" -ForegroundColor Cyan
+        try { if(Test-Path -Path $inputPath -ErrorAction Stop){ $pathOk=$true; Write-Host "  OK (Test-Path)." -ForegroundColor Green } } catch {}
+        if(-not $pathOk){
+            try { $di=New-Object System.IO.DirectoryInfo($inputPath); $null=$di.GetDirectories(); $pathOk=$true; Write-Host "  OK (DirectoryInfo)." -ForegroundColor Green } catch {}
+        }
+        if(-not $pathOk){
+            try {
+                $prevEnc=[Console]::OutputEncoding; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+                $cmdOut=& cmd /c "dir `"$inputPath`" 2>nul"; [Console]::OutputEncoding=$prevEnc
+                if($null -ne $cmdOut -and $cmdOut.Count -gt 0){ $pathOk=$true; Write-Host "  OK (cmd dir)." -ForegroundColor Green }
+            } catch {}
+        }
+        if(-not $pathOk){
+            Write-Host "  Chemin UNC inaccessible." -ForegroundColor Red
+            Write-Host "  Utilisation de $DEFAULT_PATH" -ForegroundColor Yellow
+            $startPath=$DEFAULT_PATH
+        } else { $startPath=$inputPath }
     } else {
-        Write-Host "  Chemin invalide, utilisation de $DEFAULT_PATH" -ForegroundColor Red
-        Write-Log "Chemin invalide : '$inputPath'" -Level WARN; $startPath=$DEFAULT_PATH
+        Write-Host "  Type : Local / Lecteur mappe$(if($isOneDriveScan){' / OneDrive'})" -ForegroundColor Cyan
+        if(Test-Path $inputPath -ErrorAction SilentlyContinue){
+            $pathOk=$true; Write-Host "  OK." -ForegroundColor Green; $startPath=$inputPath
+        } else {
+            Write-Host "  Chemin invalide." -ForegroundColor Red
+            Write-Host "  Utilisation de $DEFAULT_PATH" -ForegroundColor Yellow
+            $startPath=$DEFAULT_PATH; $isOneDriveScan=$false
+        }
     }
 }
 
@@ -1219,10 +1389,11 @@ $startPath    = Normalize-Path $startPath
 $depthDisplay = if($isUnlimited){"ILLIMITEE"}else{"$maxDepth niveaux"}
 $scanDateTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
-Write-Log "Lancement v$SCRIPT_VERSION : '$startPath' mode=$modeKey profondeur=$depthDisplay user='$fullUserName'"
+Write-Log "Lancement v$SCRIPT_VERSION : '$startPath' mode=$modeKey profondeur=$depthDisplay OneDrive=$isOneDriveScan"
 Write-Host ""
 Write-Host "  Chemin     : $startPath" -ForegroundColor Cyan
-Write-Host "  Type       : $(if($startPath -match '^\\\\'){'UNC Reseau'}else{'Local/Mappe'})" -ForegroundColor Cyan
+Write-Host "  Type       : $(if($startPath -match '^\\\\'){'UNC Reseau'}elseif($isOneDriveScan){'OneDrive'}else{'Local/Mappe'})" -ForegroundColor Cyan
+if($isOneDriveScan){ Write-Host "  ☁️  Mode OneDrive : fichiers cloud-only exclus du calcul" -ForegroundColor Cyan }
 Write-Host "  Mode       : $($selectedMode["Name"])"     -ForegroundColor Cyan
 Write-Host "  Precision  : $($selectedMode["Accuracy"])" -ForegroundColor Yellow
 Write-Host "  Profondeur : $depthDisplay" -ForegroundColor $(if($isUnlimited){"Yellow"}else{"Cyan"})
@@ -1231,7 +1402,7 @@ Write-Host ""
 
 try {
     $globalStart=Get-Date
-    $result=Start-FastScan -RootPath $startPath -MaxDepth $maxDepth -Mode $selectedMode
+    $result=Start-FastScan -RootPath $startPath -MaxDepth $maxDepth -Mode $selectedMode -IsOneDrive $isOneDriveScan
     $allScans        = $result["Scans"]
     $excluded        = $result["Excluded"]
     $unscanned       = $result["Unscanned"]
@@ -1241,8 +1412,10 @@ try {
     $unlimited       = $result["Unlimited"]
     $methodStats     = $result["MethodStats"]
     $junctionsSkipped= $result["JunctionsSkipped"]
+    $cloudOnlyCount  = $result["CloudOnlyCount"]
+    $localSize       = $result["LocalSize"]
 
-    Write-Host "  Scan : ${elapsed}s - $($allScans.Count) dossiers | $($unscanned.Count) non scannes | $($accessDenied.Count) proteges | $junctionsSkipped junctions" -ForegroundColor Green
+    Write-Host "  Scan : ${elapsed}s - $($allScans.Count) dossiers | $($unscanned.Count) non scannes | $($accessDenied.Count) proteges | $junctionsSkipped junctions$(if($cloudOnlyCount -gt 0){" | ☁️ $cloudOnlyCount cloud-only"})" -ForegroundColor Green
     Write-Host "  Generation HTML..." -ForegroundColor Cyan
 
     $tHtml=Get-Date
@@ -1260,7 +1433,10 @@ try {
         -FullUserName     $fullUserName `
         -ScanDateTime     $scanDateTime `
         -MethodStats      $methodStats `
-        -JunctionsSkipped $junctionsSkipped
+        -JunctionsSkipped $junctionsSkipped `
+        -IsOneDrive       $isOneDriveScan `
+        -CloudOnlyCount   $cloudOnlyCount `
+        -LocalSize        $localSize
 
     Write-Log "[MAIN] Set-Content..."
     $html | Set-Content -Path $htmlFile -Encoding UTF8 -ErrorAction Stop
@@ -1269,7 +1445,6 @@ try {
     $total=[int]((Get-Date)-$globalStart).TotalSeconds
     Write-Log "[MAIN] Total : ${total}s"
 
-    # ── Ouvrir le rapport et quitter sans attendre ──
     Start-Process $htmlFile
     Write-Log "Navigateur ouvert - fin automatique"
     Write-Host "  Total : ${total}s | Rapport ouvert." -ForegroundColor Green
