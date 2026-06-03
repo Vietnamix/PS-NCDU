@@ -1,218 +1,221 @@
-# PS-MRTG - MRTG Bandwidth Monitor
+# PS-NCDU
 
-> Moniteur de bande passante réseau en temps réel, façon **MRTG**, écrit en **PowerShell**.
-> Interface web interactive, 100 % offline, sans installation ni service.
+**Analyseur d'espace disque pour Windows, en PowerShell, avec rapport HTML interactif.**
 
-![PowerShell](https://img.shields.io/badge/PowerShell-5.1%20%7C%207%2B-5391FE?logo=powershell&logoColor=white)
-![Platform](https://img.shields.io/badge/Windows-10%20%7C%2011%20%7C%20Server-0078D6?logo=windows&logoColor=white)
-![Chart.js](https://img.shields.io/badge/Chart.js-4.4.0-FF6384?logo=chartdotjs&logoColor=white)
-![Mode](https://img.shields.io/badge/ConstrainedLanguage-compatible-success)
-![Version](https://img.shields.io/badge/version-1.16-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-3.6-2c6cb0" alt="Version">
+  <img src="https://img.shields.io/badge/PowerShell-5.1%2B-5391FE?logo=powershell&logoColor=white" alt="PowerShell">
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white" alt="Plateforme">
+  <img src="https://img.shields.io/badge/license-MIT-3fa45b" alt="Licence">
+</p>
 
-PS-MRTG sonde les compteurs réseau de Windows et affiche, en direct dans votre
-navigateur, les débits **entrant (IN)** et **sortant (OUT)** de chaque interface,
-sur 4 échelles de temps (de la dernière heure aux 15 derniers jours).
+PS-NCDU est un script PowerShell autonome qui scanne un dossier (ou un disque entier), calcule la taille réelle de chaque sous-dossier et fichier, puis génère un **rapport HTML** moderne, triable et navigable — inspiré de l'outil Unix [`ncdu`](https://dev.yorhel.nl/ncdu), mais pensé pour l'écosystème Windows et sans dépendance externe.
 
 <p align="center">
   <img src="PS-NCDU_2026-06-02.png" alt="Tableau de bord PS-MRTG" width="100%">
 </p>
 
----
-
-## ✨ Fonctionnalités
-
-- **Temps réel** : rafraîchissement automatique toutes les 2 secondes.
-- **4 vues temporelles agrégées** par interface : Live (1 h), 6 h, 2,5 j, 15 j.
-- **Vue « Tous »** : les 4 fenêtres côte à côte dans une grille 2×2, plus un mode plein écran par vue.
-- **Débit IN / OUT** tracé en courbes lissées (Chart.js).
-- **Échelle Y automatique** par paliers fins 1‑2‑5 (10 / 20 / 50 / 100 / 200 / 500 Mbps … jusqu'à 200 Gbps), ou **échelle fixe** au choix.
-- **Seuil d'alarme** (ligne rouge) optionnel, qui ajuste l'échelle pour rester visible. Désactivé par défaut.
-- **Axe temporel exact** : un historique partiel n'occupe que sa portion réelle du graphe (1 jour de données sur la vue 15 j = 1/15ᵉ de la largeur), avec graduations régulières (6 segments par graphe).
-- **Thème clair / sombre**.
-- **Export snapshot** de la vue Live.
-- **100 % offline** : aucune dépendance réseau une fois Chart.js déposé localement.
-- **Compatible ConstrainedLanguage** (environnements verrouillés) — PowerShell 5.1 et 7+.
+<p align="center">
+  <em>PowerShell&nbsp;5.1+ · Windows · Zéro installation · Rapport HTML standalone</em>
+</p>
 
 ---
 
-## 🧩 Les 4 vues temporelles
+## Sommaire
 
-Chaque vue conserve 720 points ; le « recul » est la fenêtre couverte une fois le tampon plein.
-
-| Vue   | Résolution (1 point =) | Calcul du recul                       | Recul    |
-|-------|------------------------|---------------------------------------|----------|
-| Live  | 5 s (brut)             | 720 × 5 s = 3 600 s                    | **1 h**  |
-| Hour  | 30 s (moy. 6 pts)      | 720 × 30 s = 21 600 s = 360 min       | **6 h**  |
-| Day   | 5 min (moy. 60 pts)    | 720 × 5 min = 3 600 min = 60 h        | **2,5 j**|
-| Week  | 30 min (moy. 360 pts)  | 720 × 30 min = 21 600 min = 360 h     | **15 j** |
-
----
-
-## ✅ Prérequis
-
-- **Windows** 10 / 11 ou Windows Server.
-- **PowerShell 5.1** (intégré à Windows) ou **PowerShell 7+**.
-- Un navigateur récent : **Microsoft Edge** ou **Google Chrome** recommandés.
-- **Chart.js 4.4.0** (`chart.umd.min.js`) — voir l'installation ci‑dessous.
-
-> Les compteurs sont lus via `Get-NetAdapterStatistics` (avec repli sur d'autres méthodes). Aucun droit administrateur n'est requis dans la plupart des cas.
+- [Aperçu](#aperçu)
+- [Fonctionnalités](#fonctionnalités)
+- [Prérequis](#prérequis)
+- [Installation](#installation)
+- [Utilisation](#utilisation)
+- [Paramètres](#paramètres)
+- [Le rapport HTML](#le-rapport-html)
+- [Exemples](#exemples)
+- [Dépannage](#dépannage)
+- [Feuille de route](#feuille-de-route)
+- [Contribuer](#contribuer)
+- [Licence](#licence)
 
 ---
 
-## 📥 Installation
+## Aperçu
 
-1. **Cloner le dépôt** (ou télécharger le `.ps1`) :
+Lancé sur un chemin, PS-NCDU parcourt l'arborescence de manière récursive, additionne les tailles, repère les dossiers les plus volumineux et produit un fichier `.html` que vous ouvrez dans n'importe quel navigateur. Le rapport est **entièrement autonome** (HTML + CSS + JavaScript en un seul fichier) : aucun serveur, aucune connexion, rien à installer côté client. Vous pouvez l'archiver, l'envoyer par mail ou le déposer sur un partage réseau.
 
-   ```powershell
-   git clone https://github.com/votre-utilisateur/ps-mrtg.git
-   cd ps-mrtg
-   ```
-
-2. **Fournir Chart.js en local** (recommandé pour le mode offline).
-   Téléchargez `chart.umd.min.js` depuis le CDN officiel :
-
-   ```
-   https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js
-   ```
-
-   Renommez‑le `chartjs.min.js` et placez‑le dans l'un de ces emplacements (le script les cherche dans cet ordre) :
-
-   ```
-   %TEMP%\PSMrtg\chartjs.min.js
-   %USERPROFILE%\Documents\chartjs.min.js
-   %USERPROFILE%\Desktop\chartjs.min.js
-   ```
-
-   > Si le fichier est introuvable, le script tente de le télécharger automatiquement, puis se rabat en dernier recours sur le CDN (ce qui nécessite alors une connexion Internet).
+L'objectif : répondre en quelques secondes à la question « **qu'est-ce qui remplit ce disque ?** », avec un rendu lisible et professionnel adapté à un usage en entreprise.
 
 ---
 
-## ▶️ Utilisation
+## Fonctionnalités
 
-Lancez simplement le script :
+- **Scan récursif** d'un dossier ou d'un disque, avec profondeur configurable.
+- **Calcul de taille réelle** par dossier et par fichier, avec total agrégé.
+- **Barres de proportion** colorées par paliers de taille (vert → ambre → rouge) pour repérer les gros postes d'un coup d'œil.
+- **Tri par taille** et navigation par fil d'Ariane (*breadcrumb*) dans le rapport.
+- **Thème clair / sombre** avec bascule en un clic, palette sobre et corporate.
+- **Détection des dossiers protégés** (ACL / accès refusé) : affichés explicitement avec le badge `ACL` plutôt qu'ignorés silencieusement, taille marquée `N/A`.
+- **Repérage des fichiers volumineux** et indicateur dédié dans la barre de statistiques.
+- **Badges de type de fichier** (`.iso`, `.xlsx`, `.txt`, `.md`, …) avec icônes dossier/fichier.
+- **Indicateur OneDrive** pour distinguer les contenus synchronisés dans le cloud.
+- **Barre de statistiques** : total analysé, nombre d'éléments, nombre d'éléments volumineux, nombre d'éléments protégés.
+- **Rapport HTML 100 % autonome** — un seul fichier, ouvrable hors ligne.
+
+---
+
+## Prérequis
+
+| Élément | Détail |
+|---|---|
+| Système | Windows 10 / 11 ou Windows Server |
+| PowerShell | 5.1 (Windows PowerShell) ou 7+ (PowerShell Core) |
+| Droits | Lecture sur les dossiers scannés ; certains chemins système exigent une console **administrateur** |
+| Navigateur | N'importe quel navigateur récent pour ouvrir le rapport |
+
+Aucun module externe n'est requis.
+
+---
+
+## Installation
+
+Clonez le dépôt ou téléchargez simplement le fichier `.ps1` :
 
 ```powershell
-.\PS-MRTG_v1.16.ps1
+git clone https://github.com/Vietnamix/PS-NCDU.git
+cd PS-NCDU
 ```
 
-Le script :
-1. détecte les interfaces réseau actives ;
-2. génère le tableau de bord HTML et le fichier de données dans `%TEMP%\PSMrtg\` ;
-3. ouvre automatiquement le navigateur sur le tableau de bord ;
-4. met à jour les données toutes les 2 secondes.
+Le script est encodé en **UTF-8 avec BOM** : ne le réenregistrez pas dans un autre encodage, sous peine de casser l'affichage des accents et des icônes dans le rapport.
 
-**Arrêt** : `Ctrl + C` dans la console PowerShell.
-
-> **Politique d'exécution** — si le script est bloqué, autorisez‑le pour la session courante :
+> **Politique d'exécution** — Si Windows bloque le lancement des scripts, autorisez l'exécution pour la session courante :
 > ```powershell
-> powershell -ExecutionPolicy Bypass -File .\PS-MRTG_v1.16.ps1
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 > ```
-> Lancé depuis l'ISE, le script se relance tout seul dans `powershell.exe`.
+> Cette commande ne modifie rien de façon permanente : elle ne vaut que pour la fenêtre PowerShell ouverte.
 
 ---
 
-## ⚙️ Configuration
+## Utilisation
 
-Les paramètres se règlent en tête du script :
+Lancement le plus simple, sur le dossier courant :
 
-| Variable               | Défaut   | Rôle                                                        |
-|------------------------|----------|-------------------------------------------------------------|
-| `$IntervalSec`         | `5`      | Intervalle de collecte des compteurs (secondes).           |
-| `$WriteEvery`          | `2`      | Fréquence d'écriture des données pour le navigateur (s).    |
-| `$MaxPoints`           | `720`    | Nombre de points conservés par vue.                         |
-| `$YScaleMode`          | `"auto"` | `"auto"` (paliers) ou une valeur fixe en Mbps (ex. `1000`). |
-| `$ThresholdAlertMbps`  | `150`    | Valeur pré‑remplie du seuil d'alarme (Mbps).                |
-| `$ThresholdEnabled`    | `$false` | Seuil actif au démarrage (`$true` = ligne rouge visible).   |
-
-Les réglages **Thème**, **Échelle Y**, **Seuil** et **Taille des points** sont aussi modifiables en direct depuis l'interface.
-
----
-
-## 🏗️ Fonctionnement
-
-```
-┌────────────────────┐     écrit toutes les 2 s     ┌──────────────────────┐
-│  PowerShell         │ ───────────────────────────► │  network_data.js      │
-│  (collecte /5 s)    │                              │  (dans %TEMP%\PSMrtg) │
-└────────────────────┘                              └───────────┬──────────┘
-                                                                │ recharge /2 s
-                                                                ▼
-                                                    ┌──────────────────────┐
-                                                    │  dashboard.html        │
-                                                    │  + Chart.js (offline) │
-                                                    └──────────────────────┘
+```powershell
+.\PS-NCDU_v3_6.ps1
 ```
 
-- PowerShell lit les compteurs réseau toutes les **5 s**, calcule les débits, agrège les 4 vues.
-- Il écrit `network_data.js` toutes les **2 s**.
-- Le navigateur recharge ce fichier toutes les **2 s** et redessine les graphiques.
+Sur un chemin précis :
 
-### Fichiers générés (dans `%TEMP%\PSMrtg\`)
+```powershell
+.\PS-NCDU_v3_6.ps1 -Path "C:\Users\eric"
+```
 
-| Fichier             | Contenu                                  |
-|---------------------|------------------------------------------|
-| `dashboard.html`    | Le tableau de bord (HTML + JS + Chart.js).|
-| `network_data.js`   | Les données de débit, réécrites en continu.|
-| `mrtg_cmd.js`       | Canal de commandes léger UI → script.    |
-| `chartjs.min.js`    | Copie locale de Chart.js (si déposée).   |
+Le script effectue le scan, génère le rapport `.html` et l'ouvre généralement automatiquement dans le navigateur par défaut.
 
 ---
 
-## 🖥️ Le tableau de bord
+## Paramètres
 
-- **Sélecteur d'interface** : choisissez la carte réseau à observer.
-- **Onglets de vue** : `Live · 1h (5s)`, `6h (30s)`, `2.5j (5min)`, `15j (30min)`, plus la vue **Tous**.
-- **Échelle Y** : Auto (paliers) ou valeur fixe (10 Mbps → 200 Gbps).
-- **Seuil** : cochez la case et saisissez une valeur en Mbps pour afficher la ligne d'alarme.
-- **Thème** : bascule clair / sombre.
-- **Snapshot** : exporte la vue Live.
+> Les noms ci-dessous décrivent les options du script. Adaptez-les si votre bloc `param()` diffère légèrement.
 
----
+| Paramètre | Type | Description |
+|---|---|---|
+| `-Path` | `string` | Dossier ou disque à analyser. Par défaut : le dossier courant. |
+| `-Depth` | `int` | Profondeur maximale d'arborescence à parcourir (ex. `3`). |
+| `-Output` | `string` | Chemin du fichier HTML généré. Par défaut, à côté du script ou dans le dossier scanné. |
+| `-MinSize` | `int` | Seuil (en Mo) à partir duquel un élément est marqué « volumineux ». |
+| `-Theme` | `string` | Thème de départ du rapport : `light` ou `dark`. |
 
-## 🩺 Dépannage
+Pour afficher l'aide intégrée :
 
-- **Aucune interface détectée** : vérifiez que `Get-NetAdapterStatistics` fonctionne (`Get-NetAdapterStatistics` en console). Certaines interfaces virtuelles n'exposent pas de compteurs.
-- **Graphiques vides / « Chart is not defined »** : `chartjs.min.js` n'a pas été trouvé localement et aucune connexion n'est disponible. Déposez le fichier dans `%TEMP%\PSMrtg\`.
-- **Le navigateur ne s'ouvre pas** : ouvrez manuellement `%TEMP%\PSMrtg\dashboard.html`.
-- **Script bloqué au lancement** : utilisez `-ExecutionPolicy Bypass` (voir plus haut).
-
----
-
-## 🤝 Contribuer
-
-Les contributions sont les bienvenues !
-
-1. Forkez le dépôt.
-2. Créez une branche : `git checkout -b feature/ma-fonctionnalite`.
-3. Committez : `git commit -m "Ajout de ma fonctionnalité"`.
-4. Poussez : `git push origin feature/ma-fonctionnalite`.
-5. Ouvrez une Pull Request.
-
-Merci de décrire clairement le comportement attendu et l'environnement testé (version de PowerShell, Windows, navigateur).
+```powershell
+Get-Help .\PS-NCDU_v3_6.ps1 -Detailed
+```
 
 ---
 
-## 📝 Changelog (extraits récents)
+## Le rapport HTML
 
-- **v1.16** — Axe X divisé en 6 segments égaux (10 min en Live, 1 h / 10 h / 60 h selon la vue).
-- **v1.15** — Axe X à domaine temporel fixe : les données s'affichent à leur position réelle.
-- **v1.14** — Affichage du recul (période couverte) à côté de chaque graphique.
-- **v1.13 / v1.12** — Dates sur l'axe des temps (lisibilité des vues multi‑jours).
-- **v1.11** — Heures à la même taille que les débits.
-- **v1.10** — Paliers d'échelle plus fins (200 / 500 Mbps…), seuil désactivé par défaut.
-- **v1.9** — Échelle commune aux 4 vues, lisibilité de l'axe Y, seuil intégré à l'échelle.
+Le fichier généré contient :
+
+- un **en-tête** avec le chemin analysé, la date, la durée du scan et le nombre de dossiers ;
+- une **barre de statistiques** (total, éléments, volumineux, protégés) ;
+- un **tableau triable** : icône, nom, taille, barre de proportion (%), type ;
+- un **bouton de bascule clair/sombre** en haut à droite ;
+- un **pied de page** avec la version, le périmètre du scan et les informations de support.
+
+Les couleurs des barres suivent des paliers de taille pour faire ressortir visuellement les plus gros consommateurs d'espace, et les dossiers inaccessibles (ACL) restent visibles avec un marquage distinct au lieu de disparaître du rapport.
 
 ---
 
-## 📄 Licence
+## Exemples
+
+Analyser le profil utilisateur complet sur 4 niveaux :
+
+```powershell
+.\PS-NCDU_v3_6.ps1 -Path "C:\Users\eric" -Depth 4
+```
+
+Analyser un disque entier et enregistrer le rapport sur un partage réseau :
+
+```powershell
+.\PS-NCDU_v3_6.ps1 -Path "D:\" -Output "\\serveur\rapports\disque_D.html"
+```
+
+Démarrer directement en thème sombre :
+
+```powershell
+.\PS-NCDU_v3_6.ps1 -Path "C:\Data" -Theme dark
+```
+
+Scanner des chemins système (console administrateur recommandée) :
+
+```powershell
+.\PS-NCDU_v3_6.ps1 -Path "C:\Windows" -Depth 2
+```
+
+---
+
+## Dépannage
+
+| Symptôme | Cause probable / solution |
+|---|---|
+| Le script ne se lance pas | Politique d'exécution — voir la note dans [Installation](#installation). |
+| Accents ou icônes cassés dans le rapport | Le `.ps1` a été réenregistré sans BOM UTF-8. Restaurez l'encodage d'origine. |
+| Beaucoup de dossiers en `ACL` / `N/A` | Droits insuffisants. Relancez PowerShell **en administrateur**. |
+| Scan très long sur un gros disque | Réduisez `-Depth` ou ciblez un sous-dossier précis. |
+| Le rapport ne s'ouvre pas tout seul | Ouvrez manuellement le fichier `.html` indiqué en fin d'exécution. |
+
+---
+
+## Feuille de route
+
+- [ ] Export complémentaire CSV / JSON des résultats
+- [ ] Filtre par type de fichier dans le rapport
+- [ ] Comparaison de deux scans (suivi de l'évolution dans le temps)
+- [ ] Recherche en direct dans le tableau
+
+*Suggestions bienvenues via les issues.*
+
+---
+
+## Contribuer
+
+Les contributions sont les bienvenues :
+
+1. *Forkez* le dépôt.
+2. Créez une branche (`git checkout -b feature/ma-fonctionnalite`).
+3. Conservez l'encodage **UTF-8 avec BOM** et les *here-strings* PowerShell intacts.
+4. Ouvrez une *pull request* en décrivant clairement le changement.
+
+Pour les bugs et idées, ouvrez une **issue** en précisant version de Windows, version de PowerShell et commande utilisée.
+
+---
+
+## Licence
 
 Distribué sous licence **MIT**. Voir le fichier [`LICENSE.md`](License.md).
 
 ---
 
-## 👤 Auteur
-
-**Eric Guiffault**
-
-Si ce projet vous est utile, pensez à me laisser une ⭐ sur GitHub !
+<p align="center">
+  <sub>PS-NCDU · Auteur : Eric Guiffaut · Made with PowerShell 💙</sub>
+</p>
