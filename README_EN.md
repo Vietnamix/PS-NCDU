@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/license-MIT-3fa45b" alt="License">
 </p>
 
-PS-NCDU is a self-contained PowerShell script that scans a folder (or an entire drive), computes the actual size of every subfolder and file, then generates a modern, sortable, navigable **HTML report** — inspired by the Unix tool [`ncdu`](https://dev.yorhel.nl/ncdu), but designed for the Windows ecosystem and with no external dependencies.
+PS-NCDU is a self-contained PowerShell script that scans a folder (or an entire drive), computes the actual size of every subfolder and file, then generates a modern, sortable, navigable **HTML report** - inspired by the Unix tool [`ncdu`](https://dev.yorhel.nl/ncdu), but designed for the Windows ecosystem and with no external dependencies.
 
 <p align="center">
   <img src="PS-NCDU_2026-06-02.png" alt="PS-NCDU dashboard" width="100%">
@@ -58,7 +58,7 @@ The goal: answer the question "**what is filling up this disk?**" in a few secon
 - **File-type badges** (`.iso`, `.xlsx`, `.txt`, `.md`, …) with folder/file icons.
 - **OneDrive indicator** to distinguish cloud-synced content.
 - **Stats bar**: total analyzed, item count, number of large items, number of protected items.
-- **100% self-contained HTML report** — a single file, openable offline.
+- **100% self-contained HTML report** - a single file, openable offline.
 
 ---
 
@@ -86,7 +86,7 @@ cd PS-NCDU
 
 The script is encoded in **UTF-8 with BOM**: do not re-save it in another encoding, or accents and icons in the report will break.
 
-> **Execution policy** — If Windows blocks script execution, allow it for the current session:
+> **Execution policy** - If Windows blocks script execution, allow it for the current session:
 > ```powershell
 > Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 > ```
@@ -178,7 +178,7 @@ Scan system paths (administrator console recommended):
 
 | Symptom | Likely cause / fix |
 |---|---|
-| The script won't start | Execution policy — see the note in [Installation](#installation). |
+| The script won't start | Execution policy - see the note in [Installation](#installation). |
 | Broken accents or icons in the report | The `.ps1` was re-saved without a UTF-8 BOM. Restore the original encoding. |
 | Many folders shown as `ACL` / `N/A` | Insufficient permissions. Re-run PowerShell **as administrator**. |
 | Very long scan on a large drive | Lower `-Depth` or target a specific subfolder. |
