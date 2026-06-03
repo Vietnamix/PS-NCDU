@@ -1,4 +1,4 @@
-# PS-MRTG — MRTG Bandwidth Monitor
+# PS-MRTG - MRTG Bandwidth Monitor
 
 > Moniteur de bande passante réseau en temps réel, façon **MRTG**, écrit en **PowerShell**.
 > Interface web interactive, 100 % offline, sans installation ni service.
