@@ -207,7 +207,7 @@ Merci de décrire clairement le comportement attendu et l'environnement testé (
 
 ## 📄 Licence
 
-Distribué sous licence **MIT**. Voir le fichier [`LICENSE.md](LICENSE.md).
+Distribué sous licence **MIT**. Voir le fichier [`LICENSE.md`](LICENSE.md).
 
 ---
 
