@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/license-MIT-3fa45b" alt="Licence">
 </p>
 
-PS-NCDU est un script PowerShell autonome qui scanne un dossier (ou un disque entier), calcule la taille réelle de chaque sous-dossier et fichier, puis génère un **rapport HTML** moderne, triable et navigable — inspiré de l'outil Unix [`ncdu`](https://dev.yorhel.nl/ncdu), mais pensé pour l'écosystème Windows et sans dépendance externe.
+PS-NCDU est un script PowerShell autonome qui scanne un dossier (ou un disque entier), calcule la taille réelle de chaque sous-dossier et fichier, puis génère un **rapport HTML** moderne, triable et navigable - inspiré de l'outil Unix [`ncdu`](https://dev.yorhel.nl/ncdu), mais pensé pour l'écosystème Windows et sans dépendance externe.
 
 <p align="center">
   <img src="PS-NCDU_2026-06-02.png" alt="Tableau de bord PS-MRTG" width="100%">
@@ -58,7 +58,7 @@ L'objectif : répondre en quelques secondes à la question « **qu'est-ce qui re
 - **Badges de type de fichier** (`.iso`, `.xlsx`, `.txt`, `.md`, …) avec icônes dossier/fichier.
 - **Indicateur OneDrive** pour distinguer les contenus synchronisés dans le cloud.
 - **Barre de statistiques** : total analysé, nombre d'éléments, nombre d'éléments volumineux, nombre d'éléments protégés.
-- **Rapport HTML 100 % autonome** — un seul fichier, ouvrable hors ligne.
+- **Rapport HTML 100 % autonome** - un seul fichier, ouvrable hors ligne.
 
 ---
 
