@@ -216,6 +216,8 @@ Distribué sous licence **MIT**. Voir le fichier [`LICENSE.md`](License.md).
 
 ---
 
-<p align="center">
-  <sub>PS-NCDU · Auteur : Eric Guiffaut · Made with PowerShell 💙</sub>
-</p>
+## 👤 Auteur
+
+**[Eric Guiffault](https://eric.guiffault.com)**
+
+Si ce projet vous est utile, pensez à me laisser une ⭐ sur GitHub !
