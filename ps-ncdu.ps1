@@ -8,7 +8,7 @@
 # ============================================================
 #  Script      : PS-NCDU Web Edition (arbre live navigable)
 #  Description : Disk Usage Analyzer - Application web locale
-#  Version     : 6.12
+#  Version     : 6.22
 #  Date        : 2026-09-15
 #  Auteur      : Eric Guiffault (eric@guiffault.com)
 #  Societe     : CL SASU
@@ -16,6 +16,82 @@
 #  Compatibilite : PowerShell 5.1+ | FullLanguage REQUIS (serveur web)
 #  Dependances   : Aucune - 100% PowerShell natif (HttpListener)
 # ------------------------------------------------------------
+#  NOUVEAUTES v6.22 :
+#    SORT1 : Bouton de tri Nom / Taille. Le scan avance dans l'ordre
+#            alphabetique (remplissage stable de haut en bas), mais on veut
+#            aussi voir vite les gros dossiers. Compromis : par defaut tri
+#            par nom pendant le scan et par taille a la fin ; un bouton force
+#            l'un ou l'autre a tout moment. En tri par taille pendant le scan,
+#            le re-classement est lisse (au plus une fois par seconde) pour
+#            que les gros elements remontent sans que la liste saute sans arret.
+#            Choix memorise.
+#  NOUVEAUTES v6.21 :
+#    FIX13 : Progression de haut en bas. Le serveur scannait les dossiers de
+#            premier niveau dans l'ordre brut du systeme de fichiers, alors
+#            que la page les affiche tries par nom. Les deux ordres divergaient,
+#            d'ou un remplissage qui sautait partout et semblait commencer au
+#            milieu. Les L1 sont desormais tries cote serveur dans le meme
+#            ordre que l'affichage (ordinal, minuscules) : remplissage regulier.
+#  NOUVEAUTES v6.20 :
+#    BROWSE1 : Explorateur de dossiers integre. Le dialogue Windows natif
+#              etant peu fiable pour un serveur local (regles de premier
+#              plan, et faux sens en acces distant), "Parcourir" ouvre
+#              desormais un explorateur rendu dans la page : lecteurs,
+#              navigation par clic, dossier parent, puis "Choisir ce
+#              dossier". Route serveur /api/browse. Marche a coup sur.
+#    ICONS1  : Icones par type de fichier. Une table couvrant ~120 des
+#              extensions les plus courantes (images, video, audio, PDF,
+#              bureautique, archives, code, exe, polices, etc.) remplace
+#              l'icone unique, pour identifier les types d'un coup d'oeil.
+#  NOUVEAUTES v6.19 :
+#    FIX12 : Selecteur de dossier natif repare. Il etait montre depuis un
+#            thread de fond dont le scriptblock revenait vers le runspace
+#            principal (bloque) -> blocage, rien a l'ecran. Desormais : en
+#            PS 5.1 (console STA) le dialogue s'ouvre directement sur le
+#            thread courant ; en PS 7 (MTA) via un runspace STA dedie. Une
+#            fenetre proprietaire TopMost le force au premier plan (sinon il
+#            s'ouvrait derriere le navigateur). Si l'ouverture echoue, un
+#            message invite a saisir le chemin a la main.
+#  NOUVEAUTES v6.18 :
+#    STOP1 : Interruption d'un scan. Un bouton "Interrompre" apparait
+#            pendant le scan. Comme le moteur est mono-thread bloquant,
+#            l'annulation est cooperative : fermer la connexion (bouton
+#            Interrompre, ou lancer un nouveau scan) fait echouer la
+#            prochaine ecriture SSE du serveur, ce qui leve un drapeau
+#            $script:CancelScan verifie dans les boucles (E1, E3,
+#            Register-Subtree). Le scan s'arrete alors de lui-meme et le
+#            serveur redevient disponible en ~1 s.
+#  NOUVEAUTES v6.17 :
+#    PERF5 : Scan illimite entrelace. Avant, E1 enumerait TOUT le disque
+#            (Get-ChildItem -Recurse) avant qu'une seule taille n'apparaisse
+#            (plusieurs minutes sans rien a l'ecran sur C:\). Desormais E1
+#            n'enumere que le 1er niveau, puis chaque sous-arbre est enumere
+#            juste avant d'etre mesure (E3) : les tailles se remplissent
+#            dossier par dossier en quelques secondes. Enumeration via .NET
+#            streaming (plus rapide que Get-ChildItem).
+#    UX12  : Profondeur du scan (illimitee / N) affichee dans le pied
+#            pendant le scan, pour savoir tout de suite qu'un scan complet
+#            est en cours et pourquoi il est long.
+#  NOUVEAUTES v6.16 :
+#    UX11 : Fenetre d'analyse reorganisee et plus compacte. Deux colonnes
+#           (destination a gauche, options a droite), selecteur de langue
+#           remonte dans l'en-tete, espacements resserres. Repli sur une
+#           seule colonne sur petit ecran.
+#  NOUVEAUTES v6.15 :
+#    REC1 : Gestion des recents. Dedoublonnage a l'affichage, retrait
+#           individuel (croix) et effacement complet de l'historique.
+#    EXC1 : Exclusions visibles et personnalisables. Section depliable
+#           listant les dossiers systeme toujours ignores, plus un champ
+#           pour en exclure d'autres le temps d'un scan.
+#  NOUVEAUTES v6.14 :
+#    UX10 : Fenetre d'analyse plus ergonomique. Fermeture par Echap ou par
+#           une croix (quand un scan est deja affiche), Entree pour lancer,
+#           validation du chemin en direct (pastille verte/rouge) et au
+#           lancement, memorisation des derniers reglages (chemin,
+#           profondeur, filtre), barre d'occupation par lecteur.
+#  NOUVEAUTES v6.13 :
+#    ACC1 : Accents. L'interface et les sorties console portent desormais
+#           tous leurs accents en francais, conformement a la regle projet.
 #  NOUVEAUTES v6.12 :
 #    I18N3: Selecteur de langue dans la fenetre d'analyse (12 langues).
 #           Le choix est memorise (localStorage) et prime sur la detection
@@ -276,9 +352,19 @@
 #    v6.10 - Tailles a deux decimales
 #    v6.11 - Fix antislash quadruples (sur-echappement JSON a la racine)
 #    v6.12 - Selecteur de langue dans la fenetre d'analyse
+#    v6.13 - Accents (interface et sorties console)
+#    v6.14 - Ergonomie fenetre : Echap/croix, Entree, validation, memoire, barre lecteurs
+#    v6.15 - Gestion des recents et exclusions editables
+#    v6.16 - Fenetre d'analyse reorganisee en deux colonnes, plus compacte
+#    v6.17 - Scan illimite entrelace (tailles immediates) + profondeur au pied
+#    v6.18 - Interruption d'un scan (annulation cooperative + bouton Interrompre)
+#    v6.19 - Selecteur de dossier natif repare (STA correct + fenetre au premier plan)
+#    v6.20 - Explorateur de dossiers integre + icones par type de fichier
+#    v6.21 - Progression de haut en bas (tri des L1 aligne sur l'affichage)
+#    v6.22 - Bouton de tri Nom / Taille (tri par taille lisse pendant le scan)
 # ============================================================
 
-$SCRIPT_VERSION  = "6.12"
+$SCRIPT_VERSION  = "6.22"
 $SCRIPT_DATE     = "2026-09-15"
 $USER_EMAIL      = "eric@guiffault.com"
 $SCRIPT_AUTHOR   = "Eric Guiffault"
@@ -784,6 +870,39 @@ function Get-RecursiveFiles {
 }
 
 # ============================================================
+# v6.17 : enumeration d'un sous-arbre a la demande (mode illimite)
+# .NET streaming, saute junctions/exclus, emet les noeuds vers l'arbre
+# et enregistre chaque dossier dans les tables de tailles. Appelee dans
+# E3 juste avant de mesurer chaque sous-arbre de 1er niveau : les tailles
+# s'affichent au fil de l'eau au lieu d'attendre l'enumeration complete.
+# ============================================================
+function Register-Subtree {
+    param([string]$Root,[hashtable]$Own,[hashtable]$Tot,[string]$Act,[string]$L1Name,[int]$PctL1)
+    $stack = New-Object System.Collections.Stack
+    [void]$stack.Push($Root)
+    $cnt = 0
+    while ($stack.Count -gt 0) {
+        $cur = $stack.Pop()
+        try {
+            foreach ($sub in ([System.IO.DirectoryInfo]::new($cur)).EnumerateDirectories()) {
+                if (($sub.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                $fn = $sub.FullName
+                if (Test-IsExcluded -Path $fn -ExcludedList $EXCLUDED_DIRS) {
+                    Send-Tree 'special' "{""path"":""$(ConvertTo-JsonSafe $fn)"",""parent"":""$(ConvertTo-JsonSafe $cur)"",""name"":""$(ConvertTo-JsonSafe $sub.Name)"",""kind"":""excluded""}"
+                    continue
+                }
+                if (-not $Own.ContainsKey($fn)) { $Own[$fn]=[long]0; $Tot[$fn]=[long]0 }
+                Send-Tree 'node' "{""path"":""$(ConvertTo-JsonSafe $fn)"",""parent"":""$(ConvertTo-JsonSafe $cur)"",""name"":""$(ConvertTo-JsonSafe $sub.Name)""}"
+                $cnt++
+                if (($cnt % 500) -eq 0) { Update-Progress $Act "E3/5 : $L1Name - $cnt dossiers..." "" $PctL1 $false; if ($script:CancelScan) { return $cnt } }
+                [void]$stack.Push($fn)
+            }
+        } catch {}
+    }
+    return $cnt
+}
+
+# ============================================================
 # SCAN v3.1
 # ============================================================
 function Start-FastScan {
@@ -815,34 +934,32 @@ function Start-FastScan {
     $methodStats     = @{ GCI=0; NET=0; CMD=0; NONE=0 }
 
     if ($unlimited) {
-        Write-Log "[E1] Mode illimite + filtre junctions"
-        Update-Progress $ACT "E1/5 : Enumeration complete (illimitee)..." "" 5 $true $true
+        # v6.17 : en illimite, on n'enumere ICI que le premier niveau. Le reste
+        # de l'arborescence est enumere sous-arbre par sous-arbre dans E3, juste
+        # avant d'en mesurer les tailles (entrelacement). Sans cela, E1 devait
+        # parcourir tout le disque avant qu'une seule taille n'apparaisse.
+        Write-Log "[E1] Mode illimite : enumeration L1 seule (reste entrelace en E3)"
+        Update-Progress $ACT "E1/5 : Dossiers de premier niveau..." "" 10 $true $true
         $flatList = @($RootPath)
-        try {
-            $allDirsFound = Get-ChildItem -Path $RootPath -Recurse -Directory -ErrorAction SilentlyContinue -Force
-            $dirsDone = 0
-            foreach ($dir in $allDirsFound) {
-                $dirsDone++
-                if(($dirsDone%500) -eq 0){Update-Progress $ACT "E1/5 : $dirsDone dossiers enumeres..." "" 15 ($dirsDone%5000 -eq 0)}
-                # FIX1 : Ignorer junctions en mode illimite
-                if (($dir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    $junctionsTotal++
-                    Write-Log "[E1] Junction ignoree (illimite) : $($dir.FullName)" -Level DEBUG
-                    continue
-                }
-                if(Test-IsExcluded -Path $dir.FullName -ExcludedList $EXCLUDED_DIRS){
-                    if(-not($excludedFound -contains $dir.FullName)){$excludedFound+=$dir.FullName}
+        $l1sr = Get-SubDirectories -Path $RootPath
+        $junctionsTotal += $l1sr["Junctions"]
+        if (-not $l1sr["Denied"]) {
+            foreach ($sub in $l1sr["Items"]) {
+                if (Test-IsExcluded -Path $sub.FullName -ExcludedList $EXCLUDED_DIRS) {
+                    if(-not($excludedFound -contains $sub.FullName)){$excludedFound+=$sub.FullName}
                 } else {
-                    $flatList+=$dir.FullName
-                    Send-Tree 'node' "{""path"":""$(ConvertTo-JsonSafe $dir.FullName)"",""parent"":""$(ConvertTo-JsonSafe (Get-ParentPath $dir.FullName))"",""name"":""$(ConvertTo-JsonSafe $dir.Name)""}"
+                    $flatList += $sub.FullName
+                    Send-Tree 'node' "{""path"":""$(ConvertTo-JsonSafe $sub.FullName)"",""parent"":""$(ConvertTo-JsonSafe $RootPath)"",""name"":""$(ConvertTo-JsonSafe $sub.Name)""}"
                 }
             }
+        } else {
+            if(-not($accessDenied -contains $RootPath)){$accessDenied+=$RootPath}
         }
-        catch { Write-Log "[E1] Erreur recurse : $_" -Level WARN }
         $allLevels = @($flatList)
-        Write-Log "[E1] Mode illimite : $($flatList.Count) dossiers | $junctionsTotal junctions ignorees"
+        Write-Log "[E1] Mode illimite : $($flatList.Count-1) dossiers L1 | $junctionsTotal junctions ignorees"
     } else {
         for ($d=0; $d -lt $MaxDepth; $d++) {
+            if ($script:CancelScan) { break }
             $currentLevel = $allLevels[$d]
             if ($null -eq $currentLevel -or $currentLevel.Count -eq 0) { break }
             $tLevel=$Get=Get-Date; $nextLevel=New-Object System.Collections.Generic.List[object]; $totalDirs=$currentLevel.Count; $dirsDone=0
@@ -947,10 +1064,21 @@ function Start-FastScan {
     $level1Dirs=@()
     $l1Result=Get-SubDirectories -Path $RootPath
     if(-not $l1Result["Denied"]){ foreach($s in $l1Result["Items"]){$level1Dirs+=$s.FullName} }
+    # v6.21 : trier les L1 dans le MEME ordre que l'affichage (ordinal, minuscules,
+    # par nom de dossier) pour que la progression se remplisse de haut en bas au
+    # lieu d'eparpiller le remplissage dans la liste. Le client trie par
+    # nom.toLowerCase() en ordinal ; on reproduit exactement cet ordre ici.
+    if ($level1Dirs.Count -gt 1) {
+        $l1keys  = [string[]]@($level1Dirs | ForEach-Object { (Split-Path $_ -Leaf).ToLowerInvariant() })
+        $l1items = [string[]]$level1Dirs
+        [System.Array]::Sort($l1keys, $l1items, [System.StringComparer]::Ordinal)
+        $level1Dirs = $l1items
+    }
     $totalL1=$level1Dirs.Count; $doneL1=0
     Write-Log "[E3] $totalL1 dossiers L1 | Fallback actif + filtre junctions"
 
     foreach ($l1dir in $level1Dirs){
+        if ($script:CancelScan) { break }
         $doneL1++; $l1Name=Split-Path $l1dir -Leaf
         $pctL1=30+[int](($doneL1*45)/($totalL1+1)); if($pctL1 -gt 74){$pctL1=74}
 
@@ -970,6 +1098,10 @@ function Start-FastScan {
 
         Update-Progress $ACT "E3/5 : L1 $doneL1/$totalL1 - $l1Name | $(Format-Size $totalSizeScanned)" "Collecte..." $pctL1 $true $true
         Send-Tree 'active' "{""path"":""$(ConvertTo-JsonSafe $l1dir)""}"
+        # v6.17 : en illimite, enumere le sous-arbre de ce L1 juste avant de le
+        # mesurer (entrelacement) -> l'arbre et les tailles se remplissent tout
+        # de suite, sous-arbre par sous-arbre, au lieu d'attendre tout le disque.
+        if ($unlimited) { [void](Register-Subtree -Root $l1dir -Own $dirOwnSizes -Tot $dirTotalSizes -Act $ACT -L1Name $l1Name -PctL1 $pctL1) }
         $touched=@{}   # dossiers de ce sous-arbre dont le total a change
 
         try {
@@ -1006,6 +1138,7 @@ function Start-FastScan {
                 $fl=[long]$file.Length; $sz1+=$fl; $nbF1++; $fdL1++; $totalFilesScanned++; $totalSizeScanned+=$fl
 
                 Update-Progress $ACT "E3/5 : L1 $doneL1/$totalL1 - $l1Name | $(Format-Size $totalSizeScanned)" "$fdL1 fichiers ($(Format-Size $sz1))" $pctL1 ($fdL1%50000 -eq 0)
+                if (($fdL1 % 20000) -eq 0 -and $script:CancelScan) { break }
 
                 if($dirOwnSizes.ContainsKey($pd)){
                     $dirOwnSizes[$pd]+=$fl
@@ -1731,6 +1864,7 @@ $script:FullUserName   = Get-FullUserName
 $script:Token          = [guid]::NewGuid().ToString('N')
 $script:LastResultHtml = $null
 $script:ScanBusy       = $false
+$script:CancelScan     = $false
 
 # --- Liste des lecteurs pour l'UI ---------------------------
 function Get-DrivesJson {
@@ -1771,6 +1905,21 @@ function Add-History {
         if (Test-Path -LiteralPath $script:HistoryFile) { $hist = @(Get-Content -LiteralPath $script:HistoryFile -ErrorAction SilentlyContinue) }
         $hist = @($Path) + ($hist | Where-Object { $_ -and $_.Trim() -ne '' -and $_.ToLower() -ne $Path.ToLower() })
         $hist | Select-Object -First 15 | Set-Content -LiteralPath $script:HistoryFile -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function Remove-History {
+    param([string]$Path,[switch]$All)
+    try {
+        if ($All) {
+            if (Test-Path -LiteralPath $script:HistoryFile) { Remove-Item -LiteralPath $script:HistoryFile -Force -ErrorAction SilentlyContinue }
+            return
+        }
+        if ([string]::IsNullOrWhiteSpace($Path)) { return }
+        if (Test-Path -LiteralPath $script:HistoryFile) {
+            $keep = @(Get-Content -LiteralPath $script:HistoryFile -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.Trim() -ne '' -and $_.Trim().ToLower() -ne $Path.Trim().ToLower() })
+            $keep | Set-Content -LiteralPath $script:HistoryFile -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
     } catch {}
 }
 
@@ -1819,24 +1968,46 @@ function Get-FilesJson {
 # --- Selecteur de dossier natif Windows (thread STA) --------
 function Show-FolderPicker {
     param([string]$Initial)
-    $bag = [hashtable]::Synchronized(@{ Path = "" })
-    $sb = {
-        try {
-            Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-            $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dlg.Description = "Selectionnez un dossier a analyser"
-            $dlg.ShowNewFolderButton = $false
-            if ($Initial -and (Test-Path -LiteralPath $Initial)) { $dlg.SelectedPath = $Initial }
-            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $bag.Path = $dlg.SelectedPath }
-        } catch {}
-    }.GetNewClosure()
+    # v6.19 : le dialogue WinForms exige un thread STA. En PS 5.1 la console
+    # est deja STA -> on l'ouvre directement (aucun marshaling, donc pas de
+    # blocage). En PS 7 (MTA) on ouvre un runspace STA dedie. Une fenetre
+    # proprietaire TopMost force le dialogue AU PREMIER PLAN, sinon il peut
+    # s'ouvrir derriere le navigateur et sembler absent.
+    $core = {
+        param($Init)
+        Add-Type -AssemblyName System.Windows.Forms
+        $owner = New-Object System.Windows.Forms.Form
+        $owner.TopMost = $true; $owner.ShowInTaskbar = $false
+        $owner.Width = 1; $owner.Height = 1; $owner.StartPosition = 'CenterScreen'
+        $owner.Show(); $owner.Activate()
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Selectionnez un dossier a analyser'
+        $dlg.ShowNewFolderButton = $false
+        if ($Init -and (Test-Path -LiteralPath $Init)) { $dlg.SelectedPath = $Init }
+        $picked = ''
+        if ($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { $picked = $dlg.SelectedPath }
+        $owner.Close(); $owner.Dispose()
+        return $picked
+    }
+    $path = ''; $err = ''
     try {
-        $t = New-Object System.Threading.Thread ([System.Threading.ThreadStart]$sb)
-        $t.SetApartmentState([System.Threading.ApartmentState]::STA)
-        $t.IsBackground = $true
-        $t.Start(); $t.Join()
-    } catch { Write-Log "[WEB] FolderPicker erreur : $_" -Level WARN }
-    return $bag.Path
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -eq [System.Threading.ApartmentState]::STA) {
+            $path = & $core $Initial
+        } else {
+            $rs = [runspacefactory]::CreateRunspace()
+            $rs.ApartmentState = [System.Threading.ApartmentState]::STA
+            $rs.ThreadOptions  = 'ReuseThread'
+            $rs.Open()
+            $ps = [powershell]::Create(); $ps.Runspace = $rs
+            [void]$ps.AddScript($core.ToString()).AddArgument($Initial)
+            $out = $ps.Invoke()
+            if ($ps.HadErrors -and $ps.Streams.Error.Count -gt 0) { $err = [string]$ps.Streams.Error[0] }
+            foreach ($o in $out) { if ($o -is [string] -and $o) { $path = $o } }
+            $ps.Dispose(); $rs.Close(); $rs.Dispose()
+        }
+    } catch { $err = [string]$_; Write-Log "[WEB] FolderPicker erreur : $_" -Level WARN }
+    if ($err) { Write-Log "[WEB] FolderPicker indisponible : $err" -Level WARN }
+    return @{ Path = $path; Err = $err }
 }
 
 # --- Modes de scan pour l'UI (depuis $SCAN_MODES) -----------
@@ -1960,6 +2131,8 @@ body{font-family:'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:v
 .stmain .segleaf{flex-shrink:0;color:var(--accent-light);font-weight:700;background:var(--accent-glow);border:1px solid var(--accent-light);padding:0 8px;border-radius:var(--radius-pill)}
 .stmain .segsep{opacity:.5;margin:0 2px}
 .ststage{color:var(--text-dim);white-space:nowrap;max-width:34%;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.stdepth{color:var(--text-dim);white-space:nowrap;flex-shrink:0}
+.stdepth:empty{display:none}
 .stelapsed{white-space:nowrap;flex-shrink:0}
 .stelapsed strong{color:var(--text-muted)}
 .stbtn{flex-shrink:0;background:var(--card);border:1px solid var(--border);color:var(--text-muted);padding:3px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:.9em;font-family:inherit}
@@ -1988,13 +2161,13 @@ body{font-family:'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:v
 .derr:empty{display:none}
 .overlay{position:fixed;inset:0;background:rgba(8,16,28,.55);display:none;align-items:flex-start;justify-content:center;z-index:100;overflow-y:auto;padding:44px 16px}
 .overlay.on{display:flex}
-.setcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 16px 56px rgba(0,0,0,.34);width:min(640px,96vw);padding:24px 28px;height:fit-content}
-.sethead{display:flex;align-items:center;gap:12px;margin-bottom:18px;color:var(--accent)}
+.setcard{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 16px 56px rgba(0,0,0,.34);width:min(760px,96vw);padding:22px 26px;height:fit-content}
+.sethead{display:flex;align-items:center;gap:12px;margin-bottom:14px;color:var(--accent)}
 .settitle{font-weight:800;font-size:1.1em;color:var(--text)}
 .setsub{font-size:.75em;color:var(--text-muted)}
-.setcard .chip{margin-left:auto;font-size:.72em;background:var(--accent-glow);color:var(--accent-light);border:1px solid var(--accent-light);padding:2px 10px;border-radius:var(--radius-pill);font-weight:600}
+.setcard .chip{margin-left:10px;font-size:.72em;background:var(--accent-glow);color:var(--accent-light);border:1px solid var(--accent-light);padding:2px 10px;border-radius:var(--radius-pill);font-weight:600}
 h2{font-size:1.05em;margin-bottom:4px}
-.hint{font-size:.82em;color:var(--text-muted);margin-bottom:14px}
+.hint{font-size:.82em;color:var(--text-muted);margin-bottom:16px}
 label{display:block;font-size:.82em;font-weight:600;color:var(--text-muted);margin:14px 0 6px}
 input[type=text],input[type=number]{width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:var(--radius-sm);font-size:1em;font-family:inherit;outline:none}
 input:focus{border-color:var(--accent-light);box-shadow:0 0 0 3px var(--accent-glow)}
@@ -2002,7 +2175,7 @@ input:focus{border-color:var(--accent-light);box-shadow:0 0 0 3px var(--accent-g
 .pathrow{display:flex;gap:8px}
 .pathrow input{flex:1;min-width:0}
 .pathrow .btn{flex-shrink:0}
-.quickwrap{margin-top:14px}
+.quickwrap{margin-top:12px}
 .quicklbl{font-size:.72em;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 input[type=range]{width:100%;accent-color:var(--accent);margin-top:8px;cursor:pointer}
@@ -2015,6 +2188,32 @@ label b{color:var(--accent-light)}
 .drive{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;font-size:.85em;text-align:left}
 .drive:hover{border-color:var(--accent-light);background:var(--card-hover)}
 .drive b{color:var(--accent-light)}.drive small{display:block;color:var(--text-dim);font-size:.9em}
+.setclose{position:absolute;top:14px;right:14px;width:30px;height:30px;border:none;background:transparent;color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;border-radius:6px}
+.setclose:hover{background:var(--card);color:var(--text)}
+.browsecard{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 16px 56px rgba(0,0,0,.34);width:min(520px,96vw);max-height:80vh;display:flex;flex-direction:column;padding:18px 20px}
+.browsehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.browsepath{font-family:monospace;font-size:.85em;color:var(--text-muted);word-break:break-all;margin-bottom:8px;min-height:1em}
+.browselist{flex:1;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px}
+.browseitem{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:var(--radius-sm);cursor:pointer;font-size:.92em}
+.browseitem:hover{background:var(--card)}
+.browseitem .bic{font-size:1.05em}
+.browseitem.up{color:var(--accent-light)}
+.browseact{display:flex;gap:10px;margin-top:12px}
+.pathok{display:inline-flex;align-items:center;justify-content:center;width:20px;font-weight:700;font-size:1.05em}
+.pathok.ok{color:#3fb968}.pathok.bad{color:#e0655f}
+.dbar{display:block;height:4px;margin-top:7px;background:var(--border);border-radius:2px;overflow:hidden}
+.dbar i{display:block;height:100%;background:var(--accent)}
+.dbar.warn i{background:#e0a020}.dbar.bad i{background:#e0655f}
+.exclwrap{margin:12px 0 0}
+.excltoggle{background:none;border:none;color:var(--accent-light);cursor:pointer;font-size:.9em;padding:4px 0}
+.exclbody{margin-top:8px}
+.excllist{margin:6px 0;padding-left:18px;color:var(--text-dim);font-size:.85em;max-height:110px;overflow:auto}
+.exclbody textarea{width:100%;box-sizing:border-box;font-family:monospace;font-size:.85em;resize:vertical}
+.rec{display:inline-flex;align-items:stretch;gap:0}
+.rec .drive{border-top-right-radius:0;border-bottom-right-radius:0}
+.recx{border:1px solid var(--border);border-left:none;background:var(--card);color:var(--text-dim);cursor:pointer;padding:0 8px;border-top-right-radius:var(--radius-sm);border-bottom-right-radius:var(--radius-sm);font-size:.9em;line-height:1}
+.recx:hover{color:#e0655f}
+.clearhist{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:.82em;text-decoration:underline;padding:4px 8px}
 .modes{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .mode{display:flex;align-items:flex-start;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;cursor:pointer}
 .mode:hover{border-color:var(--accent-light)}
@@ -2022,18 +2221,22 @@ label b{color:var(--accent-light)}
 .mode input{margin-top:3px}
 .mode .mname{font-weight:600;font-size:.9em}
 .mode .mmeta{font-size:.78em;color:var(--text-dim)}
-.actions{margin-top:20px;display:flex;gap:12px}
+.actions{margin-top:18px;display:flex;gap:12px}
 .btn{background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:var(--radius-sm);cursor:pointer;font-size:.92em;font-weight:600;font-family:inherit;transition:background .15s;white-space:nowrap}
 .btn:hover{background:var(--accent-light)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
 .btn-ghost{background:var(--card);color:var(--text-muted);border:1px solid var(--border)}
+.btn-stop{background:var(--card);color:var(--danger);border:1px solid var(--danger)}
+.btn-stop:hover{background:var(--danger);color:#fff}
+.btn-sort{font-size:.85em;white-space:nowrap}
 .err{margin-top:12px;color:var(--danger);font-size:.85em;display:none}
 .err.on{display:block}
 .setfoot{margin-top:16px;font-size:.75em;color:var(--text-dim);text-align:center}
 .setfoot a{color:var(--accent-light);text-decoration:none}
-.langrow{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin:-6px 0 10px}
-.langrow .langico{font-size:1.1em;color:var(--text-muted)}
-.langrow select{width:auto;min-width:150px;padding:6px 12px;margin:0;font-size:.88em}
+.setgrid{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
+.setcol>*:first-child{margin-top:0}
+.langsel{margin-left:auto;width:auto;min-width:132px;padding:6px 10px;margin-top:0;font-size:.82em}
+@media(max-width:680px){.setgrid{grid-template-columns:1fr;gap:0}.setcard{width:min(560px,96vw)}}
     </style>
 </head>
 <body>
@@ -2045,7 +2248,9 @@ label b{color:var(--accent-light)}
       <button class="btn btn-ghost" id="scangrey" onclick="scanAllGrey()" style="display:none"></button>
       <span class="ttotal" id="ttotal"></span>
       <span class="pctbadge" id="dpct"></span>
+      <button class="btn btn-ghost btn-sort" id="sortbtn" onclick="toggleSort()"></button>
       <button class="iconbtn" data-i18n-title="theme" title="Theme clair / sombre" onclick="toggleTheme()">&#9681;</button>
+      <button class="btn btn-stop" id="stopscan" onclick="stopScan()" style="display:none" data-i18n="stop">Interrompre</button>
       <button class="btn" id="dback" onclick="showSettings()" data-i18n="newscan">Nouveau scan</button>
     </div>
   </header>
@@ -2057,6 +2262,7 @@ label b{color:var(--accent-light)}
   <footer class="statusbar">
     <span class="stmain" id="dscan"></span>
     <span class="ststage" id="dcur" data-i18n="ready">Pret.</span>
+    <span class="stdepth" id="stdepth"></span>
     <span class="stelapsed">&#9201; <strong id="delapsed">0s</strong></span>
     <button class="stbtn" onclick="toggleLegend()" data-i18n="legend">Legende</button>
     <span id="dopwrap" style="display:none"></span>
@@ -2089,10 +2295,8 @@ label b{color:var(--accent-light)}
 
 <div class="overlay on" id="overlay">
   <div class="setcard">
-    <div class="sethead">__LOGO__<div><div class="settitle">PS-NCDU</div><div class="setsub" data-i18n="sub">Disk Usage Analyzer</div></div><span class="chip">v__VERSION__</span></div>
-    <div class="langrow">
-      <span class="langico">&#127760;</span>
-      <select id="langsel" onchange="setLang(this.value)">
+    <div class="sethead">__LOGO__<div><div class="settitle">PS-NCDU</div><div class="setsub" data-i18n="sub">Disk Usage Analyzer</div></div>
+      <select id="langsel" class="langsel" onchange="setLang(this.value)" aria-label="Language" title="Language">
         <option value="en">English</option>
         <option value="fr">Francais</option>
         <option value="es">Espanol</option>
@@ -2106,42 +2310,47 @@ label b{color:var(--accent-light)}
         <option value="ur">اردو</option>
         <option value="id">Bahasa Indonesia</option>
       </select>
+      <span class="chip">v__VERSION__</span>
+      <button class="setclose" id="setclose" onclick="closeModal()" aria-label="Fermer" title="Fermer" style="display:none">&#215;</button>
     </div>
     <h2 data-i18n="newanalysis">Nouvelle analyse</h2>
     <div class="hint" data-i18n="modalhint">Choisissez le dossier a analyser.</div>
-
-    <label data-i18n="folderlabel">Dossier a analyser</label>
-    <div class="pathrow">
-      <input id="path" type="text" value="__DEFAULTPATH__" placeholder="C:\ ou \\serveur\partage" spellcheck="false">
-      <button class="btn btn-ghost" id="pickbtn" onclick="pickFolder()" data-i18n="browse">Parcourir...</button>
+    <div class="setgrid">
+      <div class="setcol">
+        <label data-i18n="folderlabel">Dossier a analyser</label>
+        <div class="pathrow">
+          <input id="path" type="text" value="__DEFAULTPATH__" placeholder="C:\ ou \\serveur\partage" spellcheck="false" oninput="onPathInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();startScan();}">
+          <span id="pathok" class="pathok" aria-hidden="true"></span>
+          <button class="btn btn-ghost" id="pickbtn" onclick="openBrowse()" data-i18n="browse">Parcourir...</button>
+        </div>
+        <div class="quickwrap" id="usersWrap" style="display:none"><div class="quicklbl" data-i18n="quickaccess">Acces rapide</div><div class="chips" id="users"></div></div>
+        <div class="quickwrap" id="histWrap" style="display:none"><div class="quicklbl" data-i18n="recent">Recents</div><div class="chips" id="history"></div></div>
+        <div class="quickwrap"><div class="quicklbl" data-i18n="drives">Lecteurs</div><div class="chips" id="drives"></div></div>
+      </div>
+      <div class="setcol">
+        <label><span data-i18n="depthlabel">Profondeur d exploration :</span> <b id="depthval">3</b> <span data-i18n="levels">niveau(x)</span></label>
+        <input id="depth" type="range" min="1" max="10" value="3" oninput="onDepth()">
+        <label class="chkline"><input type="checkbox" id="depthUnl" onchange="onDepth()"> <span data-i18n="unlimited">Illimitee</span></label>
+        <div class="explain" id="depthExp"></div>
+        <label data-i18n="displaylabel">Affichage : masquer les petits elements</label>
+        <select id="minsize" onchange="onMinSize()">
+          <option value="0" data-i18n="showall">Tout afficher</option>
+          <option value="1048576" data-i18n="hide1">Masquer sous 1 Mo</option>
+          <option value="104857600" data-i18n="hide100">Masquer sous 100 Mo</option>
+          <option value="1073741824" data-i18n="hide1g">Masquer sous 1 Go</option>
+        </select>
+        <div class="explain" data-i18n="filterexp">Filtre.</div>
+        <div class="exclwrap">
+          <button type="button" class="excltoggle" onclick="toggleExcl()"><span class="chev" id="exclchev">&#9662;</span> <span data-i18n="exclusions">Exclusions</span></button>
+          <div class="exclbody" id="exclbody" style="display:none">
+            <div class="explain" data-i18n="exclexp">Ces dossiers systeme sont toujours ignores.</div>
+            <ul class="excllist" id="excllist"></ul>
+            <label data-i18n="exclcustom">Exclure aussi (un chemin par ligne) :</label>
+            <textarea id="exclcustom" rows="2" spellcheck="false" placeholder="D:\\Temp"></textarea>
+          </div>
+        </div>
+      </div>
     </div>
-
-    <div class="quickwrap" id="usersWrap" style="display:none">
-      <div class="quicklbl" data-i18n="quickaccess">Acces rapide</div>
-      <div class="chips" id="users"></div>
-    </div>
-    <div class="quickwrap" id="histWrap" style="display:none">
-      <div class="quicklbl" data-i18n="recent">Recents</div>
-      <div class="chips" id="history"></div>
-    </div>
-    <div class="quickwrap">
-      <div class="quicklbl" data-i18n="drives">Lecteurs</div>
-      <div class="chips" id="drives"></div>
-    </div>
-
-    <label><span data-i18n="depthlabel">Profondeur d exploration :</span> <b id="depthval">3</b> <span data-i18n="levels">niveau(x)</span></label>
-    <input id="depth" type="range" min="1" max="10" value="3" oninput="onDepth()">
-    <label class="chkline"><input type="checkbox" id="depthUnl" onchange="onDepth()"> <span data-i18n="unlimited">Illimitee</span></label>
-    <div class="explain" id="depthExp"></div>
-
-    <label data-i18n="displaylabel">Affichage : masquer les petits elements</label>
-    <select id="minsize" onchange="onMinSize()">
-      <option value="0" data-i18n="showall">Tout afficher</option>
-      <option value="1048576" data-i18n="hide1">Masquer sous 1 Mo</option>
-      <option value="104857600" data-i18n="hide100">Masquer sous 100 Mo</option>
-      <option value="1073741824" data-i18n="hide1g">Masquer sous 1 Go</option>
-    </select>
-    <div class="explain" data-i18n="filterexp">Filtre.</div>
     <div class="actions">
       <button class="btn" id="go" onclick="startScan()" data-i18n="analyze">Analyser</button>
       <button class="btn btn-ghost" onclick="quitServer()" data-i18n="quit">Quitter le serveur</button>
@@ -2150,12 +2359,20 @@ label b{color:var(--accent-light)}
     <div class="setfoot">Eric Guiffault &middot; <a href="mailto:__EMAIL__">__EMAIL__</a> &middot; PS-NCDU v__VERSION__ &middot; <span data-i18n="genby">Genere par :</span> __MODEL__</div>
   </div>
 </div>
+<div class="overlay" id="browseOverlay">
+  <div class="browsecard">
+    <div class="browsehead"><b data-i18n="browsetitle">Parcourir</b><button class="setclose" onclick="closeBrowse()" aria-label="Fermer" title="Fermer">&#215;</button></div>
+    <div class="browsepath" id="browsePath"></div>
+    <div class="browselist" id="browseList"></div>
+    <div class="browseact"><button class="btn" onclick="chooseBrowse()" data-i18n="choose">Choisir ce dossier</button><button class="btn btn-ghost" onclick="closeBrowse()" data-i18n="cancel">Annuler</button></div>
+  </div>
+</div>
 <script>
 var TOKEN="__TOKEN__";
 var LANG="__LANG__";
 var I18N={
-en:{sub:"Disk Usage Analyzer",newscan:"New scan",noanalysis:"No analysis",theme:"Light / dark theme",legend:"Legend",help:"Help",ready:"Ready.",launching:"Starting scan...",done:"Scan complete. Browse freely.",inprogress:"In progress:",total:"Total:",scanningtag:"scanning",parent:".. (parent folder)",scandots:"Scanning...",empty:"Empty folder",loadingfiles:"Loading files...",excluded:"excluded",junction:"junction",unscanned:"not scanned",protected:"protected",error:"error",scanshort:"scan...",queued:"queued",clickscan:"Click to scan this folder (2 levels)",filescap:"Showing the 1000 largest files of this folder.",filesafter:"Files will appear once the current scan finishes.",newanalysis:"New analysis",modalhint:"Choose the folder to analyze, then set the depth and display.",folderlabel:"Folder to analyze",browse:"Browse...",quickaccess:"Quick access",recent:"Recent",drives:"Drives",depthlabel:"Exploration depth:",levels:"level(s)",unlimited:"Unlimited (scans everything, can be very long)",displaylabel:"Display: hide small items",showall:"Show all",hide1:"Hide under 1 MB",hide100:"Hide under 100 MB",hide1g:"Hide under 1 GB",filterexp:"Filters the display only, for readability. Does not speed up the scan: sizes are always fully computed. Can be changed anytime.",analyze:"Analyze",quit:"Quit server",genby:"Generated by:",depthunl:"Scans and shows the whole tree. Can be very long and heavy on a large disk.",depthlow:"Light and fast to display: only the first levels are preloaded. Go deeper by clicking a folder.",depthmid:"Good balance: several levels visible at once, still smooth.",depthhigh:"Detailed: many levels preloaded, heavier to display.",depthtail:"Sizes are always exact; beyond this depth, click a grey folder to explore it.",leggreen:"Scanned folder, size known",legorange:"Folder planned in the current scan",legblue:"Folder queued (scanned when the current scan ends)",legspin:"Folder being scanned",leggrey:"Not scanned, excluded, junction or protected. Click to scan it (2 levels)",legfile:"File",legbar:"Share of the current folder size",helpnav:"Navigate: click a folder to enter, use the breadcrumb on top to go up.",helpgrey:"Grey folders: click to scan them (2 more levels). During a scan they queue (blue) and are scanned at the end.",helpfiles:"Files: shown when you open a folder, sorted by size, limited to the 1000 largest.",helpfilter:"Display filter (New scan button): hides small items for readability, without changing the scan.",helpone:"One scan at a time: two disk scans in parallel would slow each other down.",queuedmsg:"Folder queued ({n} waiting). Scanned when the current scan ends.",hiddenmsg:"{n} item(s) below the threshold hidden by the display filter.",invalidpath:"Invalid or inaccessible path.",windowopen:"Window open...",interrupted:"Scan interrupted.",enterpath:"Enter a path.",serverstopped:"Server stopped. You can close this tab.",scangrey:"Scan grey folders",you:"(you)",network:"(network)"},
-fr:{sub:"Analyseur d'espace disque",newscan:"Nouveau scan",noanalysis:"Aucune analyse",theme:"Theme clair / sombre",legend:"Legende",help:"Aide",ready:"Pret.",launching:"Lancement du scan...",done:"Scan termine. Naviguez librement.",inprogress:"En cours :",total:"Total :",scanningtag:"scan en cours",parent:".. (dossier parent)",scandots:"Scan en cours...",empty:"Dossier vide",loadingfiles:"Chargement des fichiers...",excluded:"exclu",junction:"jonction",unscanned:"non scanne",protected:"protege",error:"erreur",scanshort:"scan...",queued:"en file",clickscan:"Cliquer pour scanner ce dossier (2 niveaux)",filescap:"Affichage limite aux 1000 plus gros fichiers de ce dossier.",filesafter:"Les fichiers s'afficheront a la fin du scan en cours.",newanalysis:"Nouvelle analyse",modalhint:"Choisissez le dossier a analyser, puis reglez la profondeur et l'affichage.",folderlabel:"Dossier a analyser",browse:"Parcourir...",quickaccess:"Acces rapide",recent:"Recents",drives:"Lecteurs",depthlabel:"Profondeur d'exploration :",levels:"niveau(x)",unlimited:"Illimitee (parcourt tout, peut etre tres long)",displaylabel:"Affichage : masquer les petits elements",showall:"Tout afficher",hide1:"Masquer sous 1 Mo",hide100:"Masquer sous 100 Mo",hide1g:"Masquer sous 1 Go",filterexp:"Filtre uniquement l'affichage, pour la lisibilite. N'accelere pas le scan : les tailles sont toujours calculees en entier. Modifiable a tout moment.",analyze:"Analyser",quit:"Quitter le serveur",genby:"Genere par :",depthunl:"Parcourt et affiche toute l'arborescence. Peut etre tres long et lourd sur un gros disque.",depthlow:"Leger et rapide a afficher : seuls les premiers niveaux sont charges. Descendez en cliquant un dossier.",depthmid:"Bon compromis : plusieurs niveaux visibles d'emblee, affichage fluide.",depthhigh:"Detaille : beaucoup de niveaux charges d'avance, plus lourd a afficher.",depthtail:"Les tailles sont toujours exactes ; au-dela, cliquez un dossier gris pour l'explorer.",leggreen:"Dossier scanne, taille connue",legorange:"Dossier prevu dans le scan en cours",legblue:"Dossier en file (scanne a la fin du scan en cours)",legspin:"Dossier en cours de scan",leggrey:"Non scanne, exclu, jonction ou protege. Cliquer pour le scanner (2 niveaux)",legfile:"Fichier",legbar:"Part de la taille du dossier courant",helpnav:"Naviguer : cliquez un dossier pour entrer, le fil d'Ariane en haut pour remonter.",helpgrey:"Dossiers gris : cliquez pour les scanner (2 niveaux de plus). Pendant un scan ils passent en file (bleu) et sont scannes a la fin.",helpfiles:"Fichiers : affiches quand vous ouvrez un dossier, tries par taille, limites aux 1000 plus gros.",helpfilter:"Filtre d'affichage (bouton Nouveau scan) : masque les petits elements pour la lisibilite, sans changer le scan.",helpone:"Un seul scan a la fois : deux scans disque en parallele se ralentiraient.",queuedmsg:"Dossier mis en file ({n} en attente). Scanne a la fin du scan en cours.",hiddenmsg:"{n} element(s) sous le seuil masque(s) par le filtre d'affichage.",invalidpath:"Chemin invalide ou inaccessible.",windowopen:"Fenetre ouverte...",interrupted:"Scan interrompu.",enterpath:"Indiquez un chemin.",serverstopped:"Serveur arrete. Vous pouvez fermer cet onglet.",scangrey:"Scanner les dossiers gris",you:"(vous)",network:"(reseau)"},
+en:{sub:"Disk Usage Analyzer",newscan:"New scan",noanalysis:"No analysis",theme:"Light / dark theme",legend:"Legend",help:"Help",ready:"Ready.",launching:"Starting scan...",done:"Scan complete. Browse freely.",inprogress:"In progress:",total:"Total:",scanningtag:"scanning",parent:".. (parent folder)",scandots:"Scanning...",empty:"Empty folder",loadingfiles:"Loading files...",excluded:"excluded",junction:"junction",unscanned:"not scanned",protected:"protected",error:"error",scanshort:"scan...",queued:"queued",clickscan:"Click to scan this folder (2 levels)",filescap:"Showing the 1000 largest files of this folder.",filesafter:"Files will appear once the current scan finishes.",newanalysis:"New analysis",modalhint:"Choose the folder to analyze, then set the depth and display.",folderlabel:"Folder to analyze",browse:"Browse...",quickaccess:"Quick access",recent:"Recent",drives:"Drives",depthlabel:"Exploration depth:",levels:"level(s)",unlimited:"Unlimited (scans everything, can be very long)",displaylabel:"Display: hide small items",showall:"Show all",hide1:"Hide under 1 MB",hide100:"Hide under 100 MB",hide1g:"Hide under 1 GB",filterexp:"Filters the display only, for readability. Does not speed up the scan: sizes are always fully computed. Can be changed anytime.",analyze:"Analyze",quit:"Quit server",genby:"Generated by:",depthunl:"Scans and shows the whole tree. Can be very long and heavy on a large disk.",depthlow:"Light and fast to display: only the first levels are preloaded. Go deeper by clicking a folder.",depthmid:"Good balance: several levels visible at once, still smooth.",depthhigh:"Detailed: many levels preloaded, heavier to display.",depthtail:"Sizes are always exact; beyond this depth, click a grey folder to explore it.",leggreen:"Scanned folder, size known",legorange:"Folder planned in the current scan",legblue:"Folder queued (scanned when the current scan ends)",legspin:"Folder being scanned",leggrey:"Not scanned, excluded, junction or protected. Click to scan it (2 levels)",legfile:"File",legbar:"Share of the current folder size",helpnav:"Navigate: click a folder to enter, use the breadcrumb on top to go up.",helpgrey:"Grey folders: click to scan them (2 more levels). During a scan they queue (blue) and are scanned at the end.",helpfiles:"Files: shown when you open a folder, sorted by size, limited to the 1000 largest.",helpfilter:"Display filter (New scan button): hides small items for readability, without changing the scan.",helpone:"One scan at a time: two disk scans in parallel would slow each other down.",queuedmsg:"Folder queued ({n} waiting). Scanned when the current scan ends.",hiddenmsg:"{n} item(s) below the threshold hidden by the display filter.",invalidpath:"Invalid or inaccessible path.",windowopen:"Window open...",interrupted:"Scan interrupted.",enterpath:"Enter a path.",serverstopped:"Server stopped. You can close this tab.",scangrey:"Scan grey folders",you:"(you)",network:"(network)",drivefree:"free",removeone:"Remove",clearhist:"Clear history",exclusions:"Exclusions",exclexp:"These system folders are always skipped during the scan.",exclcustom:"Also exclude (one path per line):",scandepthfull:"Depth: unlimited",scandepthn:"Depth: {n}",stop:"Stop",pickerfail:"The native folder picker could not open on this machine. Type the path directly.",browsetitle:"Browse",choose:"Choose this folder",cancel:"Cancel",upfolder:"Parent folder",sortby:"Sort",byname:"name",bysize:"size"},
+fr:{sub:"Analyseur d'espace disque",newscan:"Nouveau scan",noanalysis:"Aucune analyse",theme:"Thème clair / sombre",legend:"Légende",help:"Aide",ready:"Prêt.",launching:"Lancement du scan...",done:"Scan terminé. Naviguez librement.",inprogress:"En cours :",total:"Total :",scanningtag:"scan en cours",parent:".. (dossier parent)",scandots:"Scan en cours...",empty:"Dossier vide",loadingfiles:"Chargement des fichiers...",excluded:"exclu",junction:"jonction",unscanned:"non scanné",protected:"protégé",error:"erreur",scanshort:"scan...",queued:"en file",clickscan:"Cliquer pour scanner ce dossier (2 niveaux)",filescap:"Affichage limité aux 1000 plus gros fichiers de ce dossier.",filesafter:"Les fichiers s'afficheront à la fin du scan en cours.",newanalysis:"Nouvelle analyse",modalhint:"Choisissez le dossier à analyser, puis réglez la profondeur et l'affichage.",folderlabel:"Dossier à analyser",browse:"Parcourir...",quickaccess:"Accès rapide",recent:"Récents",drives:"Lecteurs",depthlabel:"Profondeur d'exploration :",levels:"niveau(x)",unlimited:"Illimitée (parcourt tout, peut être très long)",displaylabel:"Affichage : masquer les petits éléments",showall:"Tout afficher",hide1:"Masquer sous 1 Mo",hide100:"Masquer sous 100 Mo",hide1g:"Masquer sous 1 Go",filterexp:"Filtre uniquement l'affichage, pour la lisibilité. N'accélère pas le scan : les tailles sont toujours calculées en entier. Modifiable à tout moment.",analyze:"Analyser",quit:"Quitter le serveur",genby:"Généré par :",depthunl:"Parcourt et affiche toute l'arborescence. Peut être très long et lourd sur un gros disque.",depthlow:"Léger et rapide à afficher : seuls les premiers niveaux sont chargés. Descendez en cliquant un dossier.",depthmid:"Bon compromis : plusieurs niveaux visibles d'emblée, affichage fluide.",depthhigh:"Détaillé : beaucoup de niveaux chargés d'avance, plus lourd à afficher.",depthtail:"Les tailles sont toujours exactes ; au-delà, cliquez un dossier gris pour l'explorer.",leggreen:"Dossier scanné, taille connue",legorange:"Dossier prévu dans le scan en cours",legblue:"Dossier en file (scanné à la fin du scan en cours)",legspin:"Dossier en cours de scan",leggrey:"Non scanné, exclu, jonction ou protégé. Cliquer pour le scanner (2 niveaux)",legfile:"Fichier",legbar:"Part de la taille du dossier courant",helpnav:"Naviguer : cliquez un dossier pour entrer, le fil d'Ariane en haut pour remonter.",helpgrey:"Dossiers gris : cliquez pour les scanner (2 niveaux de plus). Pendant un scan ils passent en file (bleu) et sont scannés à la fin.",helpfiles:"Fichiers : affichés quand vous ouvrez un dossier, triés par taille, limités aux 1000 plus gros.",helpfilter:"Filtre d'affichage (bouton Nouveau scan) : masque les petits éléments pour la lisibilité, sans changer le scan.",helpone:"Un seul scan à la fois : deux scans disque en parallèle se ralentiraient.",queuedmsg:"Dossier mis en file ({n} en attente). Scanné à la fin du scan en cours.",hiddenmsg:"{n} élément(s) sous le seuil masqué(s) par le filtre d'affichage.",invalidpath:"Chemin invalide ou inaccessible.",windowopen:"Fenêtre ouverte...",interrupted:"Scan interrompu.",enterpath:"Indiquez un chemin.",serverstopped:"Serveur arrêté. Vous pouvez fermer cet onglet.",scangrey:"Scanner les dossiers gris",you:"(vous)",network:"(réseau)",drivefree:"libres",removeone:"Retirer",clearhist:"Effacer l'historique",exclusions:"Exclusions",exclexp:"Ces dossiers système sont toujours ignorés lors du scan.",exclcustom:"Exclure aussi (un chemin par ligne) :",scandepthfull:"Profondeur : illimitée",scandepthn:"Profondeur : {n}",stop:"Interrompre",pickerfail:"Le sélecteur de dossier natif n'a pas pu s'ouvrir sur ce poste. Saisissez le chemin directement.",browsetitle:"Parcourir",choose:"Choisir ce dossier",cancel:"Annuler",upfolder:"Dossier parent",sortby:"Tri",byname:"nom",bysize:"taille"},
 es:{sub:"Analizador de uso de disco",newscan:"Nuevo escaneo",noanalysis:"Sin analisis",theme:"Tema claro / oscuro",legend:"Leyenda",help:"Ayuda",ready:"Listo.",launching:"Iniciando escaneo...",done:"Escaneo completo. Navegue libremente.",inprogress:"En curso:",total:"Total:",scanningtag:"escaneando",parent:".. (carpeta superior)",scandots:"Escaneando...",empty:"Carpeta vacia",loadingfiles:"Cargando archivos...",excluded:"excluido",junction:"union",unscanned:"sin escanear",protected:"protegido",error:"error",scanshort:"esc...",queued:"en cola",clickscan:"Clic para escanear esta carpeta (2 niveles)",filescap:"Mostrando los 1000 archivos mas grandes de esta carpeta.",filesafter:"Los archivos apareceran al terminar el escaneo actual.",newanalysis:"Nuevo analisis",modalhint:"Elija la carpeta a analizar, luego ajuste la profundidad y la visualizacion.",folderlabel:"Carpeta a analizar",browse:"Explorar...",quickaccess:"Acceso rapido",recent:"Recientes",drives:"Unidades",depthlabel:"Profundidad de exploracion:",levels:"nivel(es)",unlimited:"Ilimitada (recorre todo, puede ser muy largo)",displaylabel:"Vista: ocultar elementos pequenos",showall:"Mostrar todo",hide1:"Ocultar bajo 1 MB",hide100:"Ocultar bajo 100 MB",hide1g:"Ocultar bajo 1 GB",filterexp:"Filtra solo la vista, para la legibilidad. No acelera el escaneo: los tamanos siempre se calculan por completo. Modificable en cualquier momento.",analyze:"Analizar",quit:"Detener servidor",genby:"Generado por:",depthunl:"Recorre y muestra todo el arbol. Puede ser muy largo y pesado en un disco grande.",depthlow:"Ligero y rapido: solo los primeros niveles se precargan. Baje haciendo clic en una carpeta.",depthmid:"Buen equilibrio: varios niveles visibles a la vez, fluido.",depthhigh:"Detallado: muchos niveles precargados, mas pesado de mostrar.",depthtail:"Los tamanos siempre son exactos; mas alla, haga clic en una carpeta gris para explorarla.",leggreen:"Carpeta escaneada, tamano conocido",legorange:"Carpeta prevista en el escaneo actual",legblue:"Carpeta en cola (escaneada al terminar el escaneo actual)",legspin:"Carpeta en escaneo",leggrey:"Sin escanear, excluida, union o protegida. Clic para escanearla (2 niveles)",legfile:"Archivo",legbar:"Parte del tamano de la carpeta actual",helpnav:"Navegar: clic en una carpeta para entrar, la ruta de arriba para subir.",helpgrey:"Carpetas grises: clic para escanearlas (2 niveles mas). Durante un escaneo pasan a cola (azul) y se escanean al final.",helpfiles:"Archivos: se muestran al abrir una carpeta, ordenados por tamano, limitados a los 1000 mayores.",helpfilter:"Filtro de vista (boton Nuevo escaneo): oculta elementos pequenos, sin cambiar el escaneo.",helpone:"Un escaneo a la vez: dos escaneos de disco en paralelo se ralentizarian.",queuedmsg:"Carpeta en cola ({n} en espera). Se escanea al terminar el escaneo actual.",hiddenmsg:"{n} elemento(s) bajo el umbral ocultos por el filtro de vista.",invalidpath:"Ruta invalida o inaccesible.",windowopen:"Ventana abierta...",interrupted:"Escaneo interrumpido.",enterpath:"Indique una ruta.",serverstopped:"Servidor detenido. Puede cerrar esta pestana.",scangrey:"Escanear carpetas grises",you:"(usted)",network:"(red)"},
 de:{sub:"Speicherplatz-Analyse",newscan:"Neuer Scan",noanalysis:"Keine Analyse",theme:"Helles / dunkles Thema",legend:"Legende",help:"Hilfe",ready:"Bereit.",launching:"Scan wird gestartet...",done:"Scan fertig. Frei navigieren.",inprogress:"Laeuft:",total:"Gesamt:",scanningtag:"wird gescannt",parent:".. (uebergeordneter Ordner)",scandots:"Scannen...",empty:"Leerer Ordner",loadingfiles:"Dateien werden geladen...",excluded:"ausgeschlossen",junction:"Verknuepfung",unscanned:"nicht gescannt",protected:"geschuetzt",error:"Fehler",scanshort:"scan...",queued:"in Warteschlange",clickscan:"Klicken, um diesen Ordner zu scannen (2 Ebenen)",filescap:"Zeigt die 1000 groessten Dateien dieses Ordners.",filesafter:"Dateien erscheinen nach dem aktuellen Scan.",newanalysis:"Neue Analyse",modalhint:"Waehlen Sie den Ordner, dann Tiefe und Anzeige einstellen.",folderlabel:"Zu analysierender Ordner",browse:"Durchsuchen...",quickaccess:"Schnellzugriff",recent:"Zuletzt",drives:"Laufwerke",depthlabel:"Erkundungstiefe:",levels:"Ebene(n)",unlimited:"Unbegrenzt (durchsucht alles, kann sehr lange dauern)",displaylabel:"Anzeige: kleine Elemente ausblenden",showall:"Alle anzeigen",hide1:"Unter 1 MB ausblenden",hide100:"Unter 100 MB ausblenden",hide1g:"Unter 1 GB ausblenden",filterexp:"Filtert nur die Anzeige, fuer die Lesbarkeit. Beschleunigt den Scan nicht: Groessen werden immer voll berechnet. Jederzeit aenderbar.",analyze:"Analysieren",quit:"Server beenden",genby:"Erstellt von:",depthunl:"Durchsucht und zeigt den ganzen Baum. Kann sehr lang und schwer sein bei grossem Datentraeger.",depthlow:"Leicht und schnell: nur die ersten Ebenen werden vorgeladen. Tiefer per Klick auf einen Ordner.",depthmid:"Gute Balance: mehrere Ebenen auf einmal sichtbar, fluessig.",depthhigh:"Detailliert: viele Ebenen vorgeladen, schwerer anzuzeigen.",depthtail:"Groessen sind immer exakt; darueber hinaus einen grauen Ordner anklicken.",leggreen:"Gescannter Ordner, Groesse bekannt",legorange:"Ordner im aktuellen Scan geplant",legblue:"Ordner in Warteschlange (nach dem aktuellen Scan)",legspin:"Ordner wird gescannt",leggrey:"Nicht gescannt, ausgeschlossen, Verknuepfung oder geschuetzt. Klicken zum Scannen (2 Ebenen)",legfile:"Datei",legbar:"Anteil an der Groesse des aktuellen Ordners",helpnav:"Navigation: Ordner anklicken zum Oeffnen, Brotkrumen oben zum Hochgehen.",helpgrey:"Graue Ordner: anklicken zum Scannen (2 weitere Ebenen). Waehrend eines Scans in Warteschlange (blau), am Ende gescannt.",helpfiles:"Dateien: erscheinen beim Oeffnen eines Ordners, nach Groesse sortiert, auf die 1000 groessten begrenzt.",helpfilter:"Anzeigefilter (Knopf Neuer Scan): blendet kleine Elemente aus, ohne den Scan zu aendern.",helpone:"Ein Scan gleichzeitig: zwei parallele Datentraeger-Scans wuerden sich bremsen.",queuedmsg:"Ordner in Warteschlange ({n} wartend). Nach dem aktuellen Scan gescannt.",hiddenmsg:"{n} Element(e) unter dem Schwellwert vom Anzeigefilter ausgeblendet.",invalidpath:"Ungueltiger oder unzugaenglicher Pfad.",windowopen:"Fenster geoeffnet...",interrupted:"Scan unterbrochen.",enterpath:"Bitte einen Pfad angeben.",serverstopped:"Server gestoppt. Sie koennen diesen Tab schliessen.",scangrey:"Graue Ordner scannen",you:"(Sie)",network:"(Netzwerk)"},
 pt:{sub:"Analisador de uso de disco",newscan:"Nova varredura",noanalysis:"Sem analise",theme:"Tema claro / escuro",legend:"Legenda",help:"Ajuda",ready:"Pronto.",launching:"Iniciando varredura...",done:"Varredura concluida. Navegue livremente.",inprogress:"Em curso:",total:"Total:",scanningtag:"varrendo",parent:".. (pasta superior)",scandots:"Varrendo...",empty:"Pasta vazia",loadingfiles:"Carregando arquivos...",excluded:"excluido",junction:"juncao",unscanned:"nao varrido",protected:"protegido",error:"erro",scanshort:"var...",queued:"na fila",clickscan:"Clique para varrer esta pasta (2 niveis)",filescap:"Mostrando os 1000 maiores arquivos desta pasta.",filesafter:"Os arquivos aparecerao ao fim da varredura atual.",newanalysis:"Nova analise",modalhint:"Escolha a pasta a analisar, depois ajuste a profundidade e a exibicao.",folderlabel:"Pasta a analisar",browse:"Procurar...",quickaccess:"Acesso rapido",recent:"Recentes",drives:"Unidades",depthlabel:"Profundidade de exploracao:",levels:"nivel(is)",unlimited:"Ilimitada (percorre tudo, pode ser muito longo)",displaylabel:"Exibicao: ocultar itens pequenos",showall:"Mostrar tudo",hide1:"Ocultar abaixo de 1 MB",hide100:"Ocultar abaixo de 100 MB",hide1g:"Ocultar abaixo de 1 GB",filterexp:"Filtra apenas a exibicao, para a legibilidade. Nao acelera a varredura: os tamanhos sao sempre calculados por completo. Alteravel a qualquer momento.",analyze:"Analisar",quit:"Encerrar servidor",genby:"Gerado por:",depthunl:"Percorre e mostra toda a arvore. Pode ser muito longo e pesado num disco grande.",depthlow:"Leve e rapido: so os primeiros niveis sao pre-carregados. Desca clicando numa pasta.",depthmid:"Bom equilibrio: varios niveis visiveis de uma vez, fluido.",depthhigh:"Detalhado: muitos niveis pre-carregados, mais pesado de exibir.",depthtail:"Os tamanhos sao sempre exatos; alem disso, clique numa pasta cinza para explora-la.",leggreen:"Pasta varrida, tamanho conhecido",legorange:"Pasta prevista na varredura atual",legblue:"Pasta na fila (varrida ao fim da varredura atual)",legspin:"Pasta em varredura",leggrey:"Nao varrida, excluida, juncao ou protegida. Clique para varre-la (2 niveis)",legfile:"Arquivo",legbar:"Parte do tamanho da pasta atual",helpnav:"Navegar: clique numa pasta para entrar, a trilha no topo para subir.",helpgrey:"Pastas cinzas: clique para varre-las (2 niveis a mais). Durante uma varredura ficam na fila (azul) e sao varridas no fim.",helpfiles:"Arquivos: aparecem ao abrir uma pasta, ordenados por tamanho, limitados aos 1000 maiores.",helpfilter:"Filtro de exibicao (botao Nova varredura): oculta itens pequenos, sem mudar a varredura.",helpone:"Uma varredura por vez: duas varreduras de disco em paralelo se atrasariam.",queuedmsg:"Pasta na fila ({n} aguardando). Varrida ao fim da varredura atual.",hiddenmsg:"{n} item(ns) abaixo do limite ocultos pelo filtro de exibicao.",invalidpath:"Caminho invalido ou inacessivel.",windowopen:"Janela aberta...",interrupted:"Varredura interrompida.",enterpath:"Indique um caminho.",serverstopped:"Servidor parado. Voce pode fechar esta aba.",scangrey:"Varrer pastas cinzas",you:"(voce)",network:"(rede)"},
@@ -2180,8 +2397,22 @@ var selMode=3, es=null, DISPLAY_MIN=0;
 
 function q(id){return document.getElementById(id);}
 function toggleTheme(){var h=document.documentElement;h.setAttribute('data-theme',h.getAttribute('data-theme')==='dark'?'light':'dark');}
-function showSettings(){q('overlay').classList.add('on');}
+function showSettings(){q('overlay').classList.add('on');try{q('setclose').style.display=ROOT?'':'none';}catch(e){}}
+function closeModal(){if(ROOT){q('overlay').classList.remove('on');}}
+function hideStop(){try{q('stopscan').style.display='none';}catch(e){}}
+function stopScan(){try{if(es)es.close();}catch(e){}try{if(ses)ses.close();}catch(e){}stopTimer();BUSY=false;SUBSCAN=null;SUBPARENT=null;subQueue=[];SCANNING=null;ACTIVE_MAP={};HOMEVIEW=null;try{q('gbar').classList.remove('loading');}catch(e){}q('dscan').innerHTML='';q('dcur').textContent=t('interrupted');hideStop();renderTree();showSettings();}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ROOT&&q('overlay').classList.contains('on')){closeModal();}});
+var pathCk=null;
+function setPathValid(v){var el=q('pathok');if(!el)return;if(v===null){el.className='pathok';el.textContent='';}else if(v){el.className='pathok ok';el.textContent='\u2713';}else{el.className='pathok bad';el.textContent='\u2717';}}
+function onPathInput(){setPathValid(null);if(pathCk)clearTimeout(pathCk);var p=q('path').value.trim();if(!p)return;pathCk=setTimeout(function(){fetch('/api/check?token='+TOKEN+'&path='+encodeURIComponent(p)).then(function(r){return r.json();}).then(function(c){if(q('path').value.trim()===p)setPathValid(!!(c&&c.ok));}).catch(function(){});},400);}
+function saveSettings(path){try{localStorage.setItem('psncdu_prefs',JSON.stringify({path:path,depth:q('depth').value,unl:q('depthUnl').checked,min:q('minsize').value}));}catch(e){}}
+function restoreSettings(){try{var p=JSON.parse(localStorage.getItem('psncdu_prefs')||'null');if(!p)return;if(p.path)q('path').value=p.path;if(p.depth)q('depth').value=p.depth;if(typeof p.unl==='boolean')q('depthUnl').checked=p.unl;if(p.min!=null)q('minsize').value=p.min;DISPLAY_MIN=parseInt(q('minsize').value,10)||0;}catch(e){}}
 function setLang(l){if(!I18N[l])return;LANG=l;try{localStorage.setItem('psncdu_lang',l);}catch(e){}document.documentElement.lang=l;document.documentElement.dir=(l==='ar'||l==='ur')?'rtl':'ltr';applyI18n();onDepth();if(CUR)renderTree();}
+var BROWSE_PATH='';
+function openBrowse(){q('browseOverlay').classList.add('on');browseTo((q('path').value||'').trim());}
+function closeBrowse(){q('browseOverlay').classList.remove('on');}
+function chooseBrowse(){if(BROWSE_PATH){q('path').value=BROWSE_PATH;onPathInput();}closeBrowse();}
+function browseTo(p){q('browseList').innerHTML='<div class="tempty">...</div>';fetch('/api/browse?token='+TOKEN+'&path='+encodeURIComponent(p||'')).then(function(r){return r.json();}).then(function(d){BROWSE_PATH=d.path||'';q('browsePath').textContent=BROWSE_PATH||t('drives');var h='';if(d.parent!==null&&d.parent!==undefined){h+='<div class="browseitem up" onclick="browseTo(&#39;'+jsq(d.parent)+'&#39;)"><span class="bic">&#8617;</span>'+esc(t('upfolder'))+'</div>';}(d.dirs||[]).forEach(function(x){h+='<div class="browseitem" onclick="browseTo(&#39;'+jsq(x.path)+'&#39;)"><span class="bic">&#128193;</span>'+esc(x.name)+'</div>';});if(!h)h='<div class="tempty">'+esc(t('empty'))+'</div>';q('browseList').innerHTML=h.replace(/&#39;/g,String.fromCharCode(39));}).catch(function(){q('browseList').innerHTML='<div class="tempty">'+esc(t('invalidpath'))+'</div>';});}
 function toggleLegend(){q('legend').classList.toggle('on');}
 function legTab(t){
   q('legtab-leg').classList.toggle('on',t==='leg');
@@ -2193,20 +2424,26 @@ function legTab(t){
 function loadQuick(){
   fetch('/api/quick?token='+TOKEN).then(function(r){return r.json();}).then(function(d){
     if(d.users&&d.users.length){
-      var h='';d.users.forEach(function(u){var up=np(u.path);h+='<button class="drive" title="'+esc(up)+'" onclick="q(\'path\').value=\''+up.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\'"><b>'+esc(u.name)+'</b></button>';});
-      q('users').innerHTML=h;q('usersWrap').style.display='';
-    }
-    if(d.history&&d.history.length){
-      var hh='';d.history.forEach(function(p){var pp=np(p);hh+='<button class="drive" title="'+esc(pp)+'" onclick="q(\'path\').value=\''+pp.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\'">'+esc(pp)+'</button>';});
-      q('history').innerHTML=hh;q('histWrap').style.display='';
-    }
+      var h='';d.users.forEach(function(u){var up=np(u.path);h+='<button class="drive" title="'+esc(up)+'" onclick="q(&#39;path&#39;).value=&#39;'+jsq(up)+'&#39;;onPathInput()"><b>'+esc(u.name)+'</b></button>';});
+      q('users').innerHTML=h.replace(/&#39;/g,String.fromCharCode(39));q('usersWrap').style.display='';
+    }else{q('usersWrap').style.display='none';}
+    var seen={},hh='',n=0;
+    if(d.history){d.history.forEach(function(p){var pp=np(p),k=pp.toLowerCase();if(seen[k])return;seen[k]=1;n++;hh+='<span class="rec"><button class="drive" title="'+esc(pp)+'" onclick="q(&#39;path&#39;).value=&#39;'+jsq(pp)+'&#39;;onPathInput()">'+esc(pp)+'</button><button class="recx" title="'+esc(t('removeone'))+'" onclick="removeRecent(&#39;'+jsq(pp)+'&#39;)">'+String.fromCharCode(215)+'</button></span>';});}
+    if(n){hh+='<button class="clearhist" onclick="clearHistory()">'+esc(t('clearhist'))+'</button>';q('history').innerHTML=hh.replace(/&#39;/g,String.fromCharCode(39));q('histWrap').style.display='';}
+    else{q('histWrap').style.display='none';}
   }).catch(function(){});
 }
+function removeRecent(p){fetch('/api/history?token='+TOKEN+'&remove='+encodeURIComponent(p)).then(function(){loadQuick();}).catch(function(){});}
+function clearHistory(){fetch('/api/history?token='+TOKEN+'&clear=1').then(function(){loadQuick();}).catch(function(){});}
+function exclParam(){var el=q('exclcustom');if(!el)return '';var v=el.value.split(/[\r\n;]+/).map(function(x){return x.trim();}).filter(Boolean);return v.length?('&exclude='+encodeURIComponent(v.join(';'))):'';}
+function toggleExcl(){var b=q('exclbody');if(!b)return;var open=b.style.display==='none';b.style.display=open?'':'none';q('exclchev').textContent=open?String.fromCharCode(9652):String.fromCharCode(9662);if(open&&!b.dataset.loaded){loadExclusions();b.dataset.loaded='1';}}
+function loadExclusions(){fetch('/api/exclusions?token='+TOKEN).then(function(r){return r.json();}).then(function(a){var h='';(a||[]).forEach(function(x){h+='<li><code>'+esc(np(x))+'</code></li>';});q('excllist').innerHTML=h;}).catch(function(){});}
 
 function pickFolder(){
   var b=q('pickbtn');b.disabled=true;var old=b.textContent;b.textContent=t('windowopen');
   fetch('/api/pick?token='+TOKEN+'&path='+encodeURIComponent(q('path').value.trim())).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.path){q('path').value=d.path;}
+    if(d&&d.path){q('path').value=d.path;onPathInput();}
+    else if(d&&d.err){showErr(t('pickerfail'));}
     b.disabled=false;b.textContent=old;
   }).catch(function(){b.disabled=false;b.textContent=old;});
 }
@@ -2231,9 +2468,7 @@ function loadDrives(){
     var html='';
     list.forEach(function(d){
       if(!d.ready){return;}
-      html+='<button class="drive" onclick="q(\'path\').value=\''+d.name.replace(/\\/g,'\\\\')+'\'">'
-          +'<b>'+d.name+'</b> '+(d.label||'')
-          +'<small>'+d.freeGB+' / '+d.totalGB+' GB libres</small></button>';
+      var used=(d.totalGB>0)?Math.max(0,Math.min(100,Math.round((d.totalGB-d.freeGB)/d.totalGB*100))):0;var bc=used>=90?'bad':(used>=75?'warn':'ok');html+='<button class="drive" onclick="q(\'path\').value=\''+d.name.replace(/\\/g,'\\\\')+'\';onPathInput()">'+'<b>'+d.name+'</b> '+(d.label||'')+'<small>'+d.freeGB+' / '+d.totalGB+' GB '+t('drivefree')+'</small>'+'<span class="dbar '+bc+'"><i style="width:'+used+'%"></i></span></button>';
     });
     q('drives').innerHTML=html;
   }).catch(function(){});
@@ -2247,6 +2482,13 @@ function startScan(){
   var path=q('path').value.trim();
   if(!path){showErr(t('enterpath'));return;}
   q('err').classList.remove('on');
+  fetch('/api/check?token='+TOKEN+'&path='+encodeURIComponent(path)).then(function(r){return r.json();}).then(function(c){
+    if(c&&c.ok===false){showErr(t('invalidpath'));setPathValid(false);return;}
+    runScan(path);
+  }).catch(function(){runScan(path);});
+}
+function runScan(path){
+  saveSettings(path);
   if(es){try{es.close()}catch(e){}}if(ses){try{ses.close()}catch(e){}}subQueue=[];HOMEVIEW=null;
   // Ferme la modale de reglages, l'app affiche l'arbre
   q('overlay').classList.remove('on');
@@ -2263,7 +2505,8 @@ function startScan(){
   scanTimer=setInterval(function(){q('delapsed').textContent=fmtElapsed(Math.floor((Date.now()-scanStart)/1000));},1000);
 
   var depth=q('depthUnl').checked?0:q('depth').value;
-  var url='/api/scan?token='+TOKEN+'&path='+encodeURIComponent(path)+'&depth='+encodeURIComponent(depth)+'&mode='+selMode;
+  try{q('stdepth').textContent=q('depthUnl').checked?t('scandepthfull'):t('scandepthn').replace('{n}',q('depth').value);}catch(e){}
+  var url='/api/scan?token='+TOKEN+'&path='+encodeURIComponent(path)+'&depth='+encodeURIComponent(depth)+'&mode='+selMode+exclParam();
   es=new EventSource(url);
   es.onmessage=function(ev){
     try{var d=JSON.parse(ev.data);
@@ -2300,7 +2543,7 @@ function startScan(){
   };
 }
 
-function showDisplayErr(m){BUSY=false;SCANNING=null;ACTIVE_MAP={};q('dscan').innerHTML='';try{q('gbar').classList.remove('loading');}catch(e){}q('derr').textContent=m;q('derr').classList.add('on');q('dcur').textContent=t('interrupted');q('dback').classList.add('on');}
+function showDisplayErr(m){BUSY=false;SCANNING=null;ACTIVE_MAP={};q('dscan').innerHTML='';try{q('gbar').classList.remove('loading');}catch(e){}q('derr').textContent=m;q('derr').classList.add('on');q('dcur').textContent=t('interrupted');q('dback').classList.add('on');hideStop();}
 function showErr(m){var e=q('err');e.textContent=m;e.classList.add('on');}
 
 // ===== Arbre navigable live (v5.0) =====
@@ -2320,6 +2563,29 @@ function pj(ev){try{return JSON.parse(ev.data);}catch(e){return null;}}
 function isAncestorOf(anc,path){if(!anc||!path)return false;var a=anc.replace(/\\+$/,'');return path===a||path.indexOf(a+'\\')===0;}
 function np(p){if(typeof p!=='string')return p;var unc=p.slice(0,2)==='\\\\';var q=p.replace(/\\+/g,'\\');return unc?'\\'+q:q;}
 function dotIcon(c){return '<span class="ic">&#128193;<span class="sdot sdot-'+c+'"></span></span>';}
+var EXTICON={};
+(function(){function A(ic,l){l.forEach(function(e){EXTICON[e]=ic;});}
+A('&#128444;&#65039;',['jpg','jpeg','png','gif','bmp','webp','svg','ico','tif','tiff','heic','heif','psd','raw','cr2','nef']);
+A('&#127916;',['mp4','mkv','avi','mov','wmv','flv','webm','m4v','mpg','mpeg','3gp','ts','vob']);
+A('&#127925;',['mp3','wav','flac','aac','ogg','wma','m4a','opus','mid','aiff']);
+A('&#128213;',['pdf']);
+A('&#128216;',['doc','docx','odt','rtf','pages']);
+A('&#128215;',['xls','xlsx','xlsm','csv','ods','tsv']);
+A('&#128217;',['ppt','pptx','odp']);
+A('&#128221;',['txt','md','markdown','log','nfo','ini','cfg','conf']);
+A('&#128476;&#65039;',['zip','rar','7z','tar','gz','bz2','xz','iso','cab','tgz','z','lz']);
+A('&#9881;&#65039;',['exe','msi','bat','cmd','com','ps1','psm1','sh','app','apk','deb','rpm']);
+A('&#129513;',['dll','sys','drv','so','o','a','lib','ocx']);
+A('&#128187;',['js','ts','jsx','tsx','py','java','c','cpp','h','hpp','cs','go','rb','php','html','htm','css','scss','json','xml','yml','yaml','sql','swift','kt','rs','pl','lua','r','vb']);
+A('&#128292;',['ttf','otf','woff','woff2','eot','fon']);
+A('&#128189;',['vhd','vhdx','vmdk','vdi','img','dmg','ova','ovf']);
+A('&#128451;&#65039;',['db','sqlite','sqlite3','mdb','accdb','bak','dat','mdf','ldf']);
+A('&#128218;',['epub','mobi','azw','azw3','fb2','djvu']);
+A('&#128273;',['pem','crt','cer','pfx','p12','pub','asc','gpg','key']);
+A('&#128279;',['lnk','url','desktop']);
+A('&#129522;',['torrent']);
+})();
+function fileIcon(name){var i=name.lastIndexOf('.');if(i<=0||i===name.length-1)return '&#128196;';return EXTICON[name.slice(i+1).toLowerCase()]||'&#128196;';}
 
 function ensureNode(path,name,parent){
   if(name)name=np(name);
@@ -2443,6 +2709,21 @@ function runSubScan(path){
   ses.onerror=function(){if(ses.readyState===2){BUSY=false;SUBSCAN=null;SUBPARENT=null;q('gbar').classList.remove('loading');renderTree();processQueue();}};
 }
 
+var sortMode='size',sortAuto=true,_szKeys=null,_szTs=0,_szView=null;
+function effSort(){return sortAuto?(BUSY?'name':'size'):sortMode;}
+function itKey(it){return it.dir?('d:'+it.path):('f:'+(it.name||''));}
+function itName(it){return((it.dir?it.nd.name:it.name)||'').toLowerCase();}
+function sortItems(items){
+  var mode=effSort();
+  if(mode!=='size'){items.sort(function(a,b){var an=itName(a),bn=itName(b);return an<bn?-1:(an>bn?1:0);});return;}
+  function bySize(a,b){var sa=(typeof a.size==='number'&&a.size>=0)?a.size:0,sb=(typeof b.size==='number'&&b.size>=0)?b.size:0;if(sb!==sa)return sb-sa;var an=itName(a),bn=itName(b);return an<bn?-1:(an>bn?1:0);}
+  if(!BUSY){items.sort(bySize);return;}
+  var now=Date.now();
+  if(_szView!==CUR||!_szKeys||now-_szTs>1000){items.sort(bySize);_szKeys={};items.forEach(function(it,i){_szKeys[itKey(it)]=i;});_szTs=now;_szView=CUR;}
+  else{items.sort(function(a,b){var ia=_szKeys[itKey(a)],ib=_szKeys[itKey(b)];if(ia==null&&ib==null)return bySize(a,b);if(ia==null)return 1;if(ib==null)return -1;return ia-ib;});}
+}
+function updateSortBtn(){var b=q('sortbtn');if(b)b.textContent=t('sortby')+' : '+(effSort()==='size'?t('bysize'):t('byname'));}
+function toggleSort(){sortAuto=false;sortMode=(effSort()==='size')?'name':'size';try{localStorage.setItem('psncdu_sort',sortMode);}catch(e){}_szKeys=null;updateSortBtn();renderTree();}
 function renderTree(){
   if(!CUR||!NODES[CUR])return;
   var cur=NODES[CUR];
@@ -2460,13 +2741,11 @@ function renderTree(){
   (cur.children||[]).forEach(function(cp){var nd=NODES[cp];if(nd)items.push({dir:true,path:cp,nd:nd,size:(nd.size!=null&&nd.size>=0)?nd.size:(ACTIVE_MAP[cp]?ACTIVE_MAP[cp].size:-1)});});
   var fe=FILES[CUR];
   if(fe&&fe.list){fe.list.forEach(function(f){items.push({dir:false,name:f.name,size:f.size});});}
-  if(BUSY){
-    // Pendant un scan : ordre stable (alphabetique) pour que rien ne saute
-    // ni ne disparaisse pendant que les tailles arrivent.
-    items.sort(function(a,b){var an=((a.dir?a.nd.name:a.name)||'').toLowerCase(),bn=((b.dir?b.nd.name:b.name)||'').toLowerCase();return an<bn?-1:(an>bn?1:0);});
-  } else {
-    items.sort(function(a,b){return b.size-a.size;});
-  }
+  // Tri : "nom" (stable, remplissage de haut en bas) ou "taille" (gros en
+  // haut). Par defaut nom pendant le scan et taille a la fin ; le bouton de
+  // tri force l'un ou l'autre. En mode taille pendant le scan, re-tri lisse.
+  sortItems(items);
+  updateSortBtn();
   // Total et compteurs calcules depuis le contenu du dossier (robuste : la
   // taille remontee du serveur pour le dossier courant peut etre partielle).
   var childSum=0,childFiles=0;
@@ -2512,7 +2791,7 @@ function renderTree(){
       if(DISPLAY_MIN>0&&it.size>=0&&it.size<DISPLAY_MIN){hidden++;return;}
       var fpct=(it.size>=0)?Math.min(100,Math.round(it.size/denom*100)):null;
       html+='<div class="trow file" title="'+esc(it.name)+'">'
-        +'<span class="ticon"><span class="fic">&#128196;</span></span><span class="tname">'+esc(it.name)+'</span>'
+        +'<span class="ticon"><span class="fic">'+fileIcon(it.name)+'</span></span><span class="tname">'+esc(it.name)+'</span>'
         +'<span class="tbarwrap"><span class="tbar tbar-file" style="width:'+(fpct!=null?fpct:0)+'%"></span></span>'
         +'<span class="tpct">'+(fpct!=null?fpct+'%':'')+'</span><span class="tcount"></span><span class="tsize">'+tfmt(it.size)+'</span></div>';
     }
@@ -2523,6 +2802,7 @@ function renderTree(){
   if(hidden>0){html+='<div class="tempty">'+t('hiddenmsg').replace('{n}',hidden)+'</div>';}
   else if(BUSY&&items.length&&!fe&&cur.state==='done'){html+='<div class="tempty">'+t('filesafter')+'</div>';}
   q('tlist').innerHTML=html;
+  try{q('stopscan').style.display=BUSY?'':'none';}catch(e){}
 }
 
 function quitServer(){
@@ -2540,7 +2820,9 @@ document.documentElement.lang=LANG;
 document.documentElement.dir=(LANG==='ar'||LANG==='ur')?'rtl':'ltr';
 applyI18n();
 try{if(q('langsel'))q('langsel').value=LANG;}catch(e){}
-loadDrives();loadQuick();onDepth();
+try{var _sm=localStorage.getItem('psncdu_sort');if(_sm==='name'||_sm==='size'){sortMode=_sm;sortAuto=false;}}catch(e){}
+try{updateSortBtn();}catch(e){}
+loadDrives();loadQuick();restoreSettings();onDepth();
 
 // Auto-lancement quand on arrive depuis un bouton "Scanner ce dossier"
 (function(){
@@ -2581,10 +2863,12 @@ function Invoke-ScanRequest {
 
     if ($script:ScanBusy) { Send-Status $Resp 409 "scan en cours"; return }
     $script:ScanBusy = $true
+    $script:CancelScan = $false
 
     $pathIn  = $Req.QueryString["path"]
     $depthIn = $Req.QueryString["depth"]
     $modeIn  = $Req.QueryString["mode"]
+    $exIn    = $Req.QueryString["exclude"]
 
     $maxDepth = $DEFAULT_DEPTH
     try { $maxDepth = [int]$depthIn } catch {}
@@ -2632,20 +2916,29 @@ function Invoke-ScanRequest {
             try {
                 $j = "{""pct"":$pct,""status"":""$(ConvertTo-JsonSafe $status)"",""op"":""$(ConvertTo-JsonSafe $op)""}"
                 $script:SseWriter.Write("data: $j`n`n")
-            } catch {}
+            } catch { $script:CancelScan = $true }
         }
         # v5.0 : evenements d'arbre (structure + tailles) vers SSE
         $script:TreeSink = {
             param($ev,$json)
-            try { $script:SseWriter.Write("event: $ev`ndata: $json`n`n") } catch {}
+            try { $script:SseWriter.Write("event: $ev`ndata: $json`n`n") } catch { $script:CancelScan = $true }
         }
+
+        $savedExcluded = $EXCLUDED_DIRS
+        $userEx = @()
+        if ($exIn) { foreach ($e in ($exIn -split ';')) { $e = $e.Trim(); if ($e) { $userEx += (Normalize-Path $e) } } }
+        if ($userEx.Count -gt 0) { $script:EXCLUDED_DIRS = @($EXCLUDED_DIRS + $userEx); Write-Log "[WEB] Exclusions personnalisees : $($userEx -join ', ')" }
 
         $result = Start-FastScan -RootPath $startPath -MaxDepth $maxDepth -Mode $selectedMode
 
         # v5.4 : interface unique. L'arbre live EST la vue finale, plus de
         # rapport separe a generer. On signale juste la fin.
-        & $sendEvent 'done' "{}"
-        Write-Log "[WEB] Scan termine : $($result['DirCount']) dossiers en $($result['ElapsedSec'])s"
+        if ($script:CancelScan) {
+            Write-Log "[WEB] Scan interrompu (client deconnecte) : $startPath"
+        } else {
+            & $sendEvent 'done' "{}"
+            Write-Log "[WEB] Scan termine : $($result['DirCount']) dossiers en $($result['ElapsedSec'])s"
+        }
     }
     catch {
         Write-Log "[WEB] Erreur scan : $_" -Level ERROR
@@ -2656,6 +2949,7 @@ function Invoke-ScanRequest {
         $script:DirEventSink = $null
         $script:TreeSink     = $null
         $script:SseWriter    = $null
+        if ($null -ne $savedExcluded) { $script:EXCLUDED_DIRS = $savedExcluded }
         $script:ScanBusy     = $false
         try { $sw.Close() } catch {}
         try { $Resp.OutputStream.Close() } catch {}
@@ -2691,7 +2985,7 @@ for ($try = 0; $try -lt 40; $try++) {
 }
 
 if (-not $bound) {
-    Write-Host "  ERREUR : impossible de demarrer le serveur HTTP." -ForegroundColor Red
+    Write-Host "  ERREUR : impossible de démarrer le serveur HTTP." -ForegroundColor Red
     Write-Host "  Cause probable : droits insuffisants (HttpListener)." -ForegroundColor Yellow
     Write-Host "  Solutions :" -ForegroundColor Yellow
     Write-Host "    1) Lancer PowerShell en tant qu'administrateur, ou" -ForegroundColor Yellow
@@ -2704,10 +2998,10 @@ if (-not $bound) {
 }
 
 $rootUrl = "http://127.0.0.1:$port/?token=$($script:Token)"
-Write-Host "  Serveur pret : " -NoNewline -ForegroundColor Green
+Write-Host "  Serveur prêt : " -NoNewline -ForegroundColor Green
 Write-Host $rootUrl -ForegroundColor White
 Write-Host "  (Ouvrez cette URL si le navigateur ne s'ouvre pas seul)" -ForegroundColor DarkGray
-Write-Host "  Ctrl+C dans cette console, ou bouton Quitter dans l'UI, pour arreter." -ForegroundColor DarkGray
+Write-Host "  Ctrl+C dans cette console, ou bouton Quitter dans l'UI, pour arrêter." -ForegroundColor DarkGray
 Write-Host ""
 Write-Log "[WEB] Serveur demarre sur $rootUrl"
 
@@ -2733,15 +3027,64 @@ while ($running -and $listener.IsListening) {
     switch -Regex ($path) {
         '^/$'            { Send-Text   $resp $SETTINGS_HTML }
         '^/api/drives$'  { Send-Text   $resp (Get-DrivesJson) "application/json; charset=utf-8" }
+        '^/api/check$'   {
+            $cp = Normalize-Path $req.QueryString["path"]
+            $okp = $false; $isd = $false
+            try {
+                if ($cp -and (Test-Path -LiteralPath $cp)) {
+                    $okp = $true
+                    $isd = (Test-Path -LiteralPath $cp -PathType Container)
+                }
+            } catch { $okp = $false }
+            Send-Text $resp "{""ok"":$(if($okp){'true'}else{'false'}),""dir"":$(if($isd){'true'}else{'false'})}" "application/json; charset=utf-8"
+        }
         '^/api/quick$'   { Send-Text   $resp (Get-QuickJson)  "application/json; charset=utf-8" }
+        '^/api/history$' {
+            if ($req.QueryString["clear"] -eq '1') { Remove-History -All }
+            elseif ($req.QueryString["remove"]) { Remove-History -Path (Normalize-Path $req.QueryString["remove"]) }
+            Send-Text $resp (Get-QuickJson) "application/json; charset=utf-8"
+        }
+        '^/api/exclusions$' {
+            $ep=@(); foreach($ex in $EXCLUDED_DIRS){ $ep += """$(ConvertTo-JsonSafe $ex)""" }
+            Send-Text $resp ("["+($ep -join ",")+"]") "application/json; charset=utf-8"
+        }
         '^/api/files$'   {
             $fp = Normalize-Path $req.QueryString["path"]
             Send-Text $resp (Get-FilesJson $fp) "application/json; charset=utf-8"
         }
         '^/api/pick$'    {
             $init = $req.QueryString["path"]
-            $picked = Show-FolderPicker -Initial $init
-            Send-Text $resp "{""path"":""$(ConvertTo-JsonSafe $picked)""}" "application/json; charset=utf-8"
+            $pick = Show-FolderPicker -Initial $init
+            Send-Text $resp "{""path"":""$(ConvertTo-JsonSafe $pick.Path)"",""err"":""$(ConvertTo-JsonSafe $pick.Err)""}" "application/json; charset=utf-8"
+        }
+        '^/api/browse$'  {
+            $bp = $req.QueryString["path"]
+            $sb = New-Object System.Text.StringBuilder
+            if ([string]::IsNullOrWhiteSpace($bp)) {
+                [void]$sb.Append('{"path":"","parent":null,"dirs":[')
+                $first = $true
+                foreach ($root in [System.IO.Directory]::GetLogicalDrives()) {
+                    if (-not $first) { [void]$sb.Append(',') }; $first = $false
+                    [void]$sb.Append('{"name":"' + (ConvertTo-JsonSafe $root) + '","path":"' + (ConvertTo-JsonSafe $root) + '"}')
+                }
+                [void]$sb.Append(']}')
+            } else {
+                $bp2 = Normalize-Path $bp
+                if ($bp2 -match '^[A-Za-z]:\\?$') { $par = '' }
+                else { $par = Get-ParentPath $bp2; if ($null -eq $par) { $par = '' } }
+                [void]$sb.Append('{"path":"' + (ConvertTo-JsonSafe $bp2) + '","parent":"' + (ConvertTo-JsonSafe $par) + '","dirs":[')
+                try {
+                    $sr = Get-SubDirectories -Path $bp2
+                    $items = @($sr["Items"] | Sort-Object Name)
+                    $first = $true
+                    foreach ($it in $items) {
+                        if (-not $first) { [void]$sb.Append(',') }; $first = $false
+                        [void]$sb.Append('{"name":"' + (ConvertTo-JsonSafe $it.Name) + '","path":"' + (ConvertTo-JsonSafe $it.FullName) + '"}')
+                    }
+                } catch {}
+                [void]$sb.Append(']}')
+            }
+            Send-Text $resp $sb.ToString() "application/json; charset=utf-8"
         }
         '^/api/scan$'    { Invoke-ScanRequest $req $resp }
         '^/result$'      {
@@ -2758,5 +3101,5 @@ while ($running -and $listener.IsListening) {
 
 try { $listener.Stop(); $listener.Close() } catch {}
 Write-Host ""
-Write-Host "  Serveur arrete." -ForegroundColor Green
+Write-Host "  Serveur arrêté." -ForegroundColor Green
 Write-Log "[WEB] Serveur arrete"
