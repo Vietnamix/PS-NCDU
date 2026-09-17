@@ -9,9 +9,11 @@
 
 PS-NCDU est un script PowerShell **mono-fichier et autonome** qui répond en quelques secondes à la question « qu'est-ce qui remplit ce disque ? ». Lancé sans aucun paramètre, il démarre un petit serveur web local, ouvre votre navigateur, et vous laisse choisir un dossier ou un disque à analyser. L'arborescence se construit **en direct** pendant le scan, les tailles se remplissent dossier par dossier, et vous naviguez librement, même avant la fin. Inspiré de l'outil Unix [`ncdu`](https://dev.yorhel.nl/ncdu), pensé pour l'écosystème Windows, sans aucune dépendance externe.
 
-![Interface PS-NCDU](PS-NCDU_interface_v6.27b.png)
+![Interface PS-NCDU](Pictures/PS-NCDU_interface_v6.27.png)
 
 *PowerShell 5.1+ · Windows · Zéro installation · Un seul fichier · 42 langues*
+
+Other languages: [中文](Translations/README_ZH.md) · [हिन्दी](Translations/README_HI.md) · [Español](Translations/README_ES.md) · [العربية](Translations/README_AR.md) · [বাংলা](Translations/README_BN.md) · [Português](Translations/README_PT.md) · [Русский](Translations/README_RU.md) · [اردو](Translations/README_UR.md) · [Bahasa Indonesia](Translations/README_ID.md) · [Deutsch](Translations/README_DE.md) · [日本語](Translations/README_JA.md) · [Türkçe](Translations/README_TR.md) · [Tiếng Việt](Translations/README_VI.md) · [한국어](Translations/README_KO.md) · [Italiano](Translations/README_IT.md)
 
 > **Note sur la capture** : l'image ci-dessus provient d'une version antérieure. L'interface actuelle (application web locale, arbre en temps réel) diffère sensiblement ; une capture à jour est prévue.
 
@@ -40,7 +42,7 @@ Contrairement aux versions 3.x qui produisaient un rapport HTML statique à ouvr
 
 Le serveur reste sur la machine locale, ne s'expose pas sur le réseau, et s'arrête avec `Ctrl+C` dans la console ou le bouton « Quitter le serveur » dans l'interface.
 
-![Scan Form PS-NCDU](PS-NCDU_scan_form_v6.27b.png)
+![Scan Form PS-NCDU](Pictures/PS-NCDU_scan_form_v6.27.png)
 
 ---
 
