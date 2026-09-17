@@ -9,11 +9,11 @@
 
 PS-NCDU is a **single-file, self-contained** PowerShell script that answers "what is filling up this disk?" in seconds. Run it with no parameters: it starts a small local web server, opens your browser, and lets you pick a folder or a drive to analyze. The tree builds **live** while the scan runs, sizes fill in folder by folder, and you can navigate freely before it finishes. Inspired by the Unix tool [`ncdu`](https://dev.yorhel.nl/ncdu), built for the Windows ecosystem, with no external dependency.
 
-![PS-NCDU interface](PS-NCDU_interface_v6.27b.png)
+![PS-NCDU interface](Pictures/PS-NCDU_interface_v6.27b.png)
 
 *PowerShell 5.1+ · Windows · Zero install · Single file · 42 languages*
 
-Other languages: [Français](README.md) · [中文](/Translation/README_ZH.md) · [हिन्दी](Translation/README_HI.md) · [Español](/main/Translations/README_ES.md) · [العربية](main/Translations/README_AR.md) · [বাংলা](README_BN.md) · [Português](README_PT.md) · [Русский](README_RU.md) · [اردو](README_UR.md) · [Bahasa Indonesia](README_ID.md) · [Deutsch](README_DE.md) · [日本語](README_JA.md) · [Türkçe](README_TR.md) · [Tiếng Việt](README_VI.md) · [한국어](README_KO.md) · [Italiano](README_IT.md)
+Other languages: [Français](README.md) · [中文](Translations/README_ZH.md) · [हिन्दी](Translations/README_HI.md) · [Español](Translations/README_ES.md) · [العربية](Translations/README_AR.md) · [বাংলা](Translations/README_BN.md) · [Português](Translations/README_PT.md) · [Русский](Translations/README_RU.md) · [اردو](Translations/README_UR.md) · [Bahasa Indonesia](Translations/README_ID.md) · [Deutsch](Translations/README_DE.md) · [日本語](Translations/README_JA.md) · [Türkçe](Translations/README_TR.md) · [Tiếng Việt](Translations/README_VI.md) · [한국어](Translations/README_KO.md) · [Italiano](Translations/README_IT.md)
 
 ---
 
