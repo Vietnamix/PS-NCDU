@@ -9,7 +9,7 @@
 
 PS-NCDU est un script PowerShell **mono-fichier et autonome** qui répond en quelques secondes à la question « qu'est-ce qui remplit ce disque ? ». Lancé sans aucun paramètre, il démarre un petit serveur web local, ouvre votre navigateur, et vous laisse choisir un dossier ou un disque à analyser. L'arborescence se construit **en direct** pendant le scan, les tailles se remplissent dossier par dossier, et vous naviguez librement, même avant la fin. Inspiré de l'outil Unix [`ncdu`](https://dev.yorhel.nl/ncdu), pensé pour l'écosystème Windows, sans aucune dépendance externe.
 
-![Interface PS-NCDU](PS-NCDU_2026-06-02.png)
+![Interface PS-NCDU](PS-NCDU_interface_v6.27.png)
 
 *PowerShell 5.1+ · Windows · Zéro installation · Un seul fichier · 42 langues*
 
@@ -39,6 +39,8 @@ PS-NCDU est un script PowerShell **mono-fichier et autonome** qui répond en que
 Contrairement aux versions 3.x qui produisaient un rapport HTML statique à ouvrir après coup, PS-NCDU est désormais une **application web locale**. Le script démarre un serveur HTTP sur `127.0.0.1` (port 8787, avec repli automatique sur un port libre), protégé par un jeton de session, et ouvre l'interface dans votre navigateur par défaut. Tout se règle dans cette interface : le dossier à analyser, la profondeur, le filtre d'affichage, les exclusions, la langue.
 
 Le serveur reste sur la machine locale, ne s'expose pas sur le réseau, et s'arrête avec `Ctrl+C` dans la console ou le bouton « Quitter le serveur » dans l'interface.
+
+![Scan Form PS-NCDU](PS-NCDU_scan_form_v6.27.png)
 
 ---
 
