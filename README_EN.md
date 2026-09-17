@@ -9,7 +9,7 @@
 
 PS-NCDU is a **single-file, self-contained** PowerShell script that answers "what is filling up this disk?" in seconds. Run it with no parameters: it starts a small local web server, opens your browser, and lets you pick a folder or a drive to analyze. The tree builds **live** while the scan runs, sizes fill in folder by folder, and you can navigate freely before it finishes. Inspired by the Unix tool [`ncdu`](https://dev.yorhel.nl/ncdu), built for the Windows ecosystem, with no external dependency.
 
-![PS-NCDU interface](Pictures/PS-NCDU_interface_v6.27b.png)
+![PS-NCDU interface](Pictures/PS-NCDU_interface_v6.27.png)
 
 *PowerShell 5.1+ · Windows · Zero install · Single file · 42 languages*
 
@@ -40,7 +40,7 @@ Unlike the 3.x versions, which produced a static HTML report to open afterwards,
 
 The server stays on the local machine, is not exposed on the network, and stops with `Ctrl+C` in the console or the "Quit server" button in the interface.
 
-![PS-NCDU analysis window](PS-NCDU_scan_form_v6.27b.png)
+![PS-NCDU analysis window](Pictures/PS-NCDU_scan_form_v6.27.png)
 
 ---
 
