@@ -13,7 +13,7 @@ PS-NCDU is a **single-file, self-contained** PowerShell script that answers "wha
 
 *PowerShell 5.1+ · Windows · Zero install · Single file · 42 languages*
 
-Other languages: [Français](README.md) · [中文](Translation/README_ZH.md) · [हिन्दी](README_HI.md) · [Español](README_ES.md) · [العربية](README_AR.md) · [বাংলা](README_BN.md) · [Português](README_PT.md) · [Русский](README_RU.md) · [اردو](README_UR.md) · [Bahasa Indonesia](README_ID.md) · [Deutsch](README_DE.md) · [日本語](README_JA.md) · [Türkçe](README_TR.md) · [Tiếng Việt](README_VI.md) · [한국어](README_KO.md) · [Italiano](README_IT.md)
+Other languages: [Français](README.md) · [中文](/Translation/README_ZH.md) · [हिन्दी](/Translation/README_HI.md) · [Español](README_ES.md) · [العربية](README_AR.md) · [বাংলা](README_BN.md) · [Português](README_PT.md) · [Русский](README_RU.md) · [اردو](README_UR.md) · [Bahasa Indonesia](README_ID.md) · [Deutsch](README_DE.md) · [日本語](README_JA.md) · [Türkçe](README_TR.md) · [Tiếng Việt](README_VI.md) · [한국어](README_KO.md) · [Italiano](README_IT.md)
 
 ---
 
