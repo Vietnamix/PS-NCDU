@@ -8,7 +8,7 @@
 # ============================================================
 #  Script      : PS-NCDU Web Edition (arbre live navigable)
 #  Description : Disk Usage Analyzer - Application web locale
-#  Version     : 6.28
+#  Version     : 6.30
 #  Date        : 2026-09-15
 #  Auteur      : Eric Guiffault (eric@guiffault.com)
 #  Societe     : CL SASU
@@ -16,6 +16,17 @@
 #  Compatibilite : PowerShell 5.1+ | FullLanguage REQUIS (serveur web)
 #  Dependances   : Aucune - 100% PowerShell natif (HttpListener)
 # ------------------------------------------------------------
+#  NOUVEAUTES v6.30 :
+#    UX14 : Drapeaux dans le selecteur de langue. Un <select> natif ne peut
+#           pas afficher d'images et les emoji drapeaux ne s'affichent pas
+#           sur Windows (Chrome/Edge montrent deux lettres). Le selecteur
+#           devient une deroulante personnalisee avec 35 drapeaux SVG
+#           simplifies (un seul partage par les 8 langues indiennes),
+#           inlines et factorises pour rester legers.
+#  NOUVEAUTES v6.29 :
+#    UX13 : Retrait de la mention "Genere par : <modele>" du pied de page
+#           de la fenetre d'analyse. La cle i18n "genby" reste dans les
+#           dictionnaires mais n'est plus affichee.
 #  NOUVEAUTES v6.28 :
 #    I18N8 : Localisation complete. Les 15 dernieres cles (explications de
 #            profondeur, du filtre, de la fenetre d'analyse, des exclusions,
@@ -409,9 +420,11 @@
 #    v6.26 - 17 cles oubliees traduites dans les 10 langues d'origine (Depth, tri, etc.)
 #    v6.27 - Bouton de tri et profondeur retraduits au changement de langue
 #    v6.28 - Localisation complete : 89 cles dans les 42 langues
+#    v6.29 - Retrait de la mention du modele dans le pied de page
+#    v6.30 - Drapeaux SVG dans le selecteur de langue
 # ============================================================
 
-$SCRIPT_VERSION  = "6.28"
+$SCRIPT_VERSION  = "6.30"
 $SCRIPT_DATE     = "2026-09-15"
 $USER_EMAIL      = "eric@guiffault.com"
 $SCRIPT_AUTHOR   = "Eric Guiffault"
@@ -2282,7 +2295,15 @@ label b{color:var(--accent-light)}
 .setfoot a{color:var(--accent-light);text-decoration:none}
 .setgrid{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
 .setcol>*:first-child{margin-top:0}
-.langsel{margin-left:auto;width:auto;min-width:132px;padding:6px 10px;margin-top:0;font-size:.82em}
+.langdd{position:relative;margin-left:auto}
+.langbtn{display:inline-flex;align-items:center;gap:8px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);padding:5px 10px;font-size:.82em;cursor:pointer;white-space:nowrap}
+.langbtn .chev{color:var(--text-dim);margin-left:2px}
+.flg{width:20px;height:13px;border-radius:2px;flex-shrink:0;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+.langmenu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:0 10px 30px rgba(0,0,0,.3);max-height:320px;overflow:auto;min-width:210px;padding:4px}
+.langmenu.on{display:block}
+.langitem{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:.9em;white-space:nowrap}
+.langitem:hover{background:var(--card)}
+.langitem.on{background:var(--card);font-weight:600}
 @media(max-width:680px){.setgrid{grid-template-columns:1fr;gap:0}.setcard{width:min(560px,96vw)}}
     </style>
 </head>
@@ -2343,50 +2364,10 @@ label b{color:var(--accent-light)}
 <div class="overlay on" id="overlay">
   <div class="setcard">
     <div class="sethead">__LOGO__<div><div class="settitle">PS-NCDU</div><div class="setsub" data-i18n="sub">Disk Usage Analyzer</div></div>
-      <select id="langsel" class="langsel" onchange="setLang(this.value)" aria-label="Language" title="Language">
-        <option value="en">English</option>
-        <option value="fr">Francais</option>
-        <option value="es">Espanol</option>
-        <option value="de">Deutsch</option>
-        <option value="pt">Portugues</option>
-        <option value="ru">Русский</option>
-        <option value="zh">中文</option>
-        <option value="ar">العربية</option>
-        <option value="hi">हिन्दी</option>
-        <option value="bn">বাংলা</option>
-        <option value="ur">اردو</option>
-        <option value="id">Bahasa Indonesia</option>
-        <option value="ja">日本語</option>
-        <option value="ko">한국어</option>
-        <option value="it">Italiano</option>
-        <option value="tr">Türkçe</option>
-        <option value="vi">Tiếng Việt</option>
-        <option value="pl">Polski</option>
-        <option value="nl">Nederlands</option>
-        <option value="uk">Українська</option>
-        <option value="ro">Română</option>
-        <option value="cs">Čeština</option>
-        <option value="el">Ελληνικά</option>
-        <option value="sv">Svenska</option>
-        <option value="hu">Magyar</option>
-        <option value="fa">فارسی</option>
-        <option value="th">ไทย</option>
-        <option value="ms">Bahasa Melayu</option>
-        <option value="fil">Filipino</option>
-        <option value="sw">Kiswahili</option>
-        <option value="ta">தமிழ்</option>
-        <option value="te">తెలుగు</option>
-        <option value="mr">मराठी</option>
-        <option value="gu">ગુજરાતી</option>
-        <option value="kn">ಕನ್ನಡ</option>
-        <option value="ml">മലയാളം</option>
-        <option value="pa">ਪੰਜਾਬੀ</option>
-        <option value="he">עברית</option>
-        <option value="ha">Hausa</option>
-        <option value="my">မြန်မာ</option>
-        <option value="am">አማርኛ</option>
-        <option value="km">ខ្មែរ</option>
-      </select>
+      <div class="langdd" id="langdd" onclick="event.stopPropagation()">
+        <button type="button" class="langbtn" id="langbtn" onclick="toggleLangMenu(event)" aria-label="Language" title="Language"></button>
+        <div class="langmenu" id="langmenu"></div>
+      </div>
       <span class="chip">v__VERSION__</span>
       <button class="setclose" id="setclose" onclick="closeModal()" aria-label="Fermer" title="Fermer" style="display:none">&#215;</button>
     </div>
@@ -2433,7 +2414,7 @@ label b{color:var(--accent-light)}
       <button class="btn btn-ghost" onclick="quitServer()" data-i18n="quit">Quitter le serveur</button>
     </div>
     <div class="err" id="err"></div>
-    <div class="setfoot">Eric Guiffault &middot; <a href="mailto:__EMAIL__">__EMAIL__</a> &middot; PS-NCDU v__VERSION__ &middot; <span data-i18n="genby">Genere par :</span> __MODEL__</div>
+    <div class="setfoot">Eric Guiffault &middot; <a href="mailto:__EMAIL__">__EMAIL__</a> &middot; PS-NCDU v__VERSION__</div>
   </div>
 </div>
 <div class="overlay" id="browseOverlay">
@@ -2484,7 +2465,58 @@ function setPathValid(v){var el=q('pathok');if(!el)return;if(v===null){el.classN
 function onPathInput(){setPathValid(null);if(pathCk)clearTimeout(pathCk);var p=q('path').value.trim();if(!p)return;pathCk=setTimeout(function(){fetch('/api/check?token='+TOKEN+'&path='+encodeURIComponent(p)).then(function(r){return r.json();}).then(function(c){if(q('path').value.trim()===p)setPathValid(!!(c&&c.ok));}).catch(function(){});},400);}
 function saveSettings(path){try{localStorage.setItem('psncdu_prefs',JSON.stringify({path:path,depth:q('depth').value,unl:q('depthUnl').checked,min:q('minsize').value}));}catch(e){}}
 function restoreSettings(){try{var p=JSON.parse(localStorage.getItem('psncdu_prefs')||'null');if(!p)return;if(p.path)q('path').value=p.path;if(p.depth)q('depth').value=p.depth;if(typeof p.unl==='boolean')q('depthUnl').checked=p.unl;if(p.min!=null)q('minsize').value=p.min;DISPLAY_MIN=parseInt(q('minsize').value,10)||0;}catch(e){}}
-function setLang(l){if(!I18N[l])return;LANG=l;try{localStorage.setItem('psncdu_lang',l);}catch(e){}document.documentElement.lang=l;document.documentElement.dir=/^(ar|ur|fa|he)$/.test(l)?'rtl':'ltr';applyI18n();try{updateSortBtn();}catch(e){}try{if(BUSY&&q('stdepth').textContent){q('stdepth').textContent=q('depthUnl').checked?t('scandepthfull'):t('scandepthn').replace('{n}',q('depth').value);}}catch(e){}onDepth();if(CUR)renderTree();}
+function setLang(l){if(!I18N[l])return;LANG=l;try{localStorage.setItem('psncdu_lang',l);}catch(e){}document.documentElement.lang=l;document.documentElement.dir=/^(ar|ur|fa|he)$/.test(l)?'rtl':'ltr';applyI18n();try{updateSortBtn();}catch(e){}try{updateLangBtn();}catch(e){}try{if(BUSY&&q('stdepth').textContent){q('stdepth').textContent=q('depthUnl').checked?t('scandepthfull'):t('scandepthn').replace('{n}',q('depth').value);}}catch(e){}onDepth();if(CUR)renderTree();}
+var LANGORDER=['en','fr','es','de','pt','ru','zh','ar','hi','bn','ur','id','ja','ko','it','tr','vi','pl','nl','uk','ro','cs','el','sv','hu','fa','th','ms','fil','sw','ta','te','mr','gu','kn','ml','pa','he','ha','my','am','km'];
+var LANGNAMES={en:'English',fr:'Français',es:'Español',de:'Deutsch',pt:'Português',ru:'Русский',zh:'中文',ar:'العربية',hi:'हिन्दी',bn:'বাংলা',ur:'اردو',id:'Bahasa Indonesia',ja:'日本語',ko:'한국어',it:'Italiano',tr:'Türkçe',vi:'Tiếng Việt',pl:'Polski',nl:'Nederlands',uk:'Українська',ro:'Română',cs:'Čeština',el:'Ελληνικά',sv:'Svenska',hu:'Magyar',fa:'فارسی',th:'ไทย',ms:'Bahasa Melayu',fil:'Filipino',sw:'Kiswahili',ta:'தமிழ்',te:'తెలుగు',mr:'मराठी',gu:'ગુજરાતી',kn:'ಕನ್ನಡ',ml:'മലയാളം',pa:'ਪੰਜਾਬੀ',he:'עברית',ha:'Hausa',my:'မြန်မာ',am:'አማርኛ',km:'ខ្មែរ'};
+function _fh(a,b,c){return '<rect width="3" height=".67" fill="'+a+'"/><rect y=".67" width="3" height=".66" fill="'+b+'"/><rect y="1.33" width="3" height=".67" fill="'+c+'"/>';}
+function _fv(a,b,c){return '<rect width="1" height="2" fill="'+a+'"/><rect x="1" width="1" height="2" fill="'+b+'"/><rect x="2" width="1" height="2" fill="'+c+'"/>';}
+function _fb(a,b){return '<rect width="3" height="1" fill="'+a+'"/><rect y="1" width="3" height="1" fill="'+b+'"/>';}
+var _in=_fh('#FF9933','#fff','#138808')+'<circle cx="1.5" cy="1" r=".25" fill="none" stroke="#000080" stroke-width=".06"/>';
+var FLAGS={
+en:'<rect width="3" height="2" fill="#012169"/><path d="M0 0L3 2M3 0L0 2" stroke="#fff" stroke-width=".4"/><path d="M1.5 0V2M0 1H3" stroke="#fff" stroke-width=".5"/><path d="M1.5 0V2M0 1H3" stroke="#C8102E" stroke-width=".3"/>',
+fr:_fv('#0055A4','#fff','#EF4135'),
+es:'<rect width="3" height="2" fill="#AA151B"/><rect y=".5" width="3" height="1" fill="#F1BF00"/>',
+de:_fh('#000','#D00','#FFCE00'),
+pt:'<rect width="3" height="2" fill="#009C3B"/><polygon points="1.5,.25 2.75,1 1.5,1.75 .25,1" fill="#FFDF00"/><circle cx="1.5" cy="1" r=".42" fill="#002776"/>',
+ru:_fh('#fff','#0039A6','#D52B1E'),
+zh:'<rect width="3" height="2" fill="#DE2910"/><polygon points=".6,.25 .72,.6 1.08,.6 .79,.82 .9,1.17 .6,.95 .3,1.17 .41,.82 .12,.6 .48,.6" fill="#FFDE00"/>',
+ar:'<rect width="3" height="2" fill="#006C35"/><rect x=".6" y="1.3" width="1.8" height=".18" fill="#fff"/>',
+hi:_in,ta:_in,te:_in,mr:_in,gu:_in,kn:_in,ml:_in,pa:_in,
+bn:'<rect width="3" height="2" fill="#006A4E"/><circle cx="1.35" cy="1" r=".6" fill="#F42A41"/>',
+ur:'<rect width="3" height="2" fill="#01411C"/><rect width=".75" height="2" fill="#fff"/><circle cx="1.95" cy="1" r=".5" fill="#fff"/><circle cx="2.1" cy=".9" r=".42" fill="#01411C"/>',
+id:_fb('#CE1126','#fff'),
+ja:'<rect width="3" height="2" fill="#fff"/><circle cx="1.5" cy="1" r=".6" fill="#BC002D"/>',
+ko:'<rect width="3" height="2" fill="#fff"/><circle cx="1.5" cy="1" r=".5" fill="#CD2E3A"/><path d="M1 1a.5.5 0 0 0 1 0a.25.25 0 0 1-.5 0a.25.25 0 0 0-.5 0" fill="#0047A0"/>',
+it:_fv('#009246','#fff','#CE2B37'),
+tr:'<rect width="3" height="2" fill="#E30A17"/><circle cx="1.1" cy="1" r=".5" fill="#fff"/><circle cx="1.25" cy="1" r=".4" fill="#E30A17"/>',
+vi:'<rect width="3" height="2" fill="#DA251D"/><polygon points="1.5,.4 1.68,.85 2.15,.85 1.77,1.13 1.92,1.6 1.5,1.32 1.08,1.6 1.23,1.13 .85,.85 1.32,.85" fill="#FF0"/>',
+pl:_fb('#fff','#DC143C'),
+nl:_fh('#AE1C28','#fff','#21468B'),
+uk:_fb('#005BBB','#FFD500'),
+ro:_fv('#002B7F','#FCD116','#CE1126'),
+cs:_fb('#fff','#D7141A')+'<polygon points="0,0 1.5,1 0,2" fill="#11457E"/>',
+el:'<rect width="3" height="2" fill="#0D5EAF"/><path d="M0 .33H3M0 .78H3M0 1.22H3M0 1.67H3" stroke="#fff" stroke-width=".22"/><rect width="1.1" height="1.1" fill="#0D5EAF"/><path d="M.55 0V1.1M0 .55H1.1" stroke="#fff" stroke-width=".22"/>',
+sv:'<rect width="3" height="2" fill="#006AA7"/><rect x=".9" width=".4" height="2" fill="#FECC00"/><rect y=".8" width="3" height=".4" fill="#FECC00"/>',
+hu:_fh('#CD2A3E','#fff','#436F4D'),
+fa:_fh('#239F40','#fff','#DA0000')+'<circle cx="1.5" cy="1" r=".22" fill="#DA0000"/>',
+th:'<rect width="3" height="2" fill="#A51931"/><rect y=".33" width="3" height="1.34" fill="#fff"/><rect y=".67" width="3" height=".66" fill="#2D2A4A"/>',
+ms:'<rect width="3" height="2" fill="#fff"/><path d="M0 .21H3M0 .64H3M0 1.07H3M0 1.5H3M0 1.93H3" stroke="#CC0001" stroke-width=".21"/><rect width="1.5" height="1.07" fill="#010066"/><circle cx=".75" cy=".53" r=".3" fill="#FC0"/><circle cx=".85" cy=".53" r=".25" fill="#010066"/>',
+fil:_fb('#0038A8','#CE1126')+'<polygon points="0,0 1.3,1 0,2" fill="#fff"/><circle cx=".45" cy="1" r=".18" fill="#FCD116"/>',
+sw:'<rect width="3" height=".6" fill="#000"/><rect y=".6" width="3" height=".8" fill="#BB0000"/><rect y="1.4" width="3" height=".6" fill="#006600"/><rect y=".55" width="3" height=".1" fill="#fff"/><rect y="1.35" width="3" height=".1" fill="#fff"/>',
+he:'<rect width="3" height="2" fill="#fff"/><rect y=".2" width="3" height=".3" fill="#0038B8"/><rect y="1.5" width="3" height=".3" fill="#0038B8"/><polygon points="1.5,.6 1.85,1.2 1.15,1.2" fill="none" stroke="#0038B8" stroke-width=".08"/><polygon points="1.5,1.4 1.85,.8 1.15,.8" fill="none" stroke="#0038B8" stroke-width=".08"/>',
+ha:_fv('#008751','#fff','#008751'),
+my:_fh('#FECB00','#34B233','#EA2839')+'<polygon points="1.5,.45 1.72,1.05 2.35,1.05 1.85,1.42 2.05,2 1.5,1.65 .95,2 1.15,1.42 .65,1.05 1.28,1.05" fill="#fff"/>',
+am:_fh('#078930','#FCDD09','#DA121A')+'<circle cx="1.5" cy="1" r=".45" fill="#0F47AF"/>',
+km:'<rect width="3" height="2" fill="#032EA1"/><rect y=".5" width="3" height="1" fill="#E00025"/><rect x="1.1" y=".7" width=".8" height=".6" fill="#fff"/>'
+};
+function flag(c){return '<svg class="flg" viewBox="0 0 3 2" aria-hidden="true">'+(FLAGS[c]||'<rect width="3" height="2" fill="#888"/>')+'</svg>';}
+function buildLangMenu(){var m=q('langmenu');if(!m)return;var h='';LANGORDER.forEach(function(c){h+='<div class="langitem'+(c===LANG?' on':'')+'" onclick="pickLang(&#39;'+c+'&#39;)">'+flag(c)+'<span>'+esc(LANGNAMES[c]||c)+'</span></div>';});m.innerHTML=h.replace(/&#39;/g,String.fromCharCode(39));}
+function updateLangBtn(){var b=q('langbtn');if(b)b.innerHTML=flag(LANG)+'<span>'+esc(LANGNAMES[LANG]||LANG)+'</span><span class="chev">&#9662;</span>';}
+function toggleLangMenu(e){if(e)e.stopPropagation();var m=q('langmenu');if(!m)return;if(m.classList.toggle('on'))buildLangMenu();}
+function closeLangMenu(){var m=q('langmenu');if(m)m.classList.remove('on');}
+function pickLang(c){setLang(c);closeLangMenu();}
+document.addEventListener('click',closeLangMenu);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLangMenu();});
 var BROWSE_PATH='';
 function openBrowse(){q('browseOverlay').classList.add('on');browseTo((q('path').value||'').trim());}
 function closeBrowse(){q('browseOverlay').classList.remove('on');}
@@ -2896,7 +2928,7 @@ try{var _sl=localStorage.getItem('psncdu_lang');if(_sl&&I18N[_sl])LANG=_sl;}catc
 document.documentElement.lang=LANG;
 document.documentElement.dir=/^(ar|ur|fa|he)$/.test(LANG)?'rtl':'ltr';
 applyI18n();
-try{if(q('langsel'))q('langsel').value=LANG;}catch(e){}
+try{updateLangBtn();}catch(e){}
 try{var _sm=localStorage.getItem('psncdu_sort');if(_sm==='name'||_sm==='size')sortMode=_sm;}catch(e){}
 try{updateSortBtn();}catch(e){}
 loadDrives();loadQuick();restoreSettings();onDepth();
@@ -2926,7 +2958,6 @@ Write-Log "[WEB] Langue systeme : $([System.Globalization.CultureInfo]::CurrentU
 $SETTINGS_HTML = $SETTINGS_HTML.
     Replace('__VERSION__',     $SCRIPT_VERSION).
     Replace('__EMAIL__',       $USER_EMAIL).
-    Replace('__MODEL__',       "Claude Opus 4.8").
     Replace('__DEFAULTPATH__', $DEFAULT_PATH).
     Replace('__DEFAULTDEPTH__',[string]$DEFAULT_DEPTH).
     Replace('__MODES_JSON__',  $MODES_JSON).
